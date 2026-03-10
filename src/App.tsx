@@ -9,10 +9,17 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { EditorPane } from "./components/EditorPane";
+import { OutlineTree } from "./components/OutlineTree";
 import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectTree } from "./components/ProjectTree";
 import { Sidebar } from "./components/Sidebar";
 import { desktop } from "./lib/desktop";
+import {
+  buildProjectOutline,
+  findActiveHeading,
+  type OutlineHeading,
+  type OutlineNode,
+} from "./lib/outline";
 import { closeTextTab, findFirstTextPath, getNodeByPath } from "./lib/workspace";
 import type {
   AgentMessage,
@@ -33,6 +40,9 @@ type PreviewSelection =
   | { kind: "compile" }
   | { kind: "asset"; path: string }
   | { kind: "unsupported"; path: string; title: string; description: string };
+
+type ExplorerMode = "files" | "outline";
+type EditorJumpTarget = { path: string; line: number; nonce: number };
 
 function isTextNode(node: ProjectNode | null) {
   return Boolean(node?.kind !== "directory" && node?.isText);
@@ -60,10 +70,12 @@ function App() {
   const [bootstrapError, setBootstrapError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [openFiles, setOpenFiles] = useState<Record<string, ProjectFile>>({});
+  const [dirtyPaths, setDirtyPaths] = useState<string[]>([]);
   const [assetCache, setAssetCache] = useState<Record<string, AssetResource>>({});
   const [activeFilePath, setActiveFilePath] = useState("");
   const [highlightedPage, setHighlightedPage] = useState(1);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("explorer");
+  const [explorerMode, setExplorerMode] = useState<ExplorerMode>("files");
   const [cursorLine, setCursorLine] = useState(1);
   const [selectedText, setSelectedText] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -75,6 +87,11 @@ function App() {
   const [streamText, setStreamText] = useState("");
   const [loadingFilePath, setLoadingFilePath] = useState("");
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
+  const [outlineHeadings, setOutlineHeadings] = useState<OutlineHeading[]>([]);
+  const [outlineTree, setOutlineTree] = useState<OutlineNode[]>([]);
+  const [outlineWarnings, setOutlineWarnings] = useState<string[]>([]);
+  const [outlineLoading, setOutlineLoading] = useState(false);
+  const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
 
   const activeFile = useMemo<ProjectFile | null>(() => {
     if (!activeFilePath) {
@@ -90,8 +107,13 @@ function App() {
 
   const deferredActiveFile = useDeferredValue(activeFile);
   const hasProject = Boolean(snapshot?.projectConfig.rootPath);
+  const dirtyPathSet = useMemo(() => new Set(dirtyPaths), [dirtyPaths]);
   const focusedTreePath =
     previewSelection.kind === "compile" ? activeFilePath : previewSelection.path;
+  const activeOutlineId = useMemo(
+    () => findActiveHeading(outlineHeadings, activeFilePath, cursorLine)?.id,
+    [activeFilePath, cursorLine, outlineHeadings],
+  );
 
   const loadTextFile = useEffectEvent(async (path: string) => {
     if (!path) {
@@ -162,6 +184,11 @@ function App() {
     setOpenTabs(nextTabs);
     setActiveFilePath(nextActivePath);
     setPreviewSelection(nextPreview);
+    setDirtyPaths((current) =>
+      rootChanged
+        ? []
+        : current.filter((path) => nextTabs.includes(path) && isTextNode(getNodeByPath(nextSnapshot.tree, path))),
+    );
     setOpenFiles((current) =>
       rootChanged
         ? {}
@@ -203,18 +230,6 @@ function App() {
         if (nextSnapshot.activeFile) {
           await loadTextFile(nextSnapshot.activeFile);
         }
-
-        if (nextSnapshot.projectConfig.autoCompile && nextSnapshot.compileResult.status === "idle") {
-          const compileResult = await desktop.compileProject(nextSnapshot.activeFile || nextSnapshot.projectConfig.mainTex);
-          setSnapshot((current) =>
-            current
-              ? {
-                ...current,
-                compileResult,
-              }
-              : current,
-          );
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setBootstrapError(message);
@@ -241,6 +256,60 @@ function App() {
     }
   }, [assetCache, loadAsset, previewSelection]);
 
+  useEffect(() => {
+    if (!snapshot?.projectConfig.rootPath) {
+      setOutlineHeadings([]);
+      setOutlineTree([]);
+      setOutlineWarnings([]);
+      setOutlineLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOutlineLoading(true);
+
+    void (async () => {
+      try {
+        const result = await buildProjectOutline(snapshot.projectConfig.mainTex, async (path) => {
+          const openFile = openFiles[path];
+          if (openFile) {
+            return openFile.content;
+          }
+          const file = await desktop.readFile(path);
+          return file.content;
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (result.warnings.length > 0) {
+          console.warn("outline warnings", result.warnings);
+        }
+        setOutlineHeadings(result.headings);
+        setOutlineTree(result.tree);
+        setOutlineWarnings(result.warnings);
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("failed to build outline", error);
+          setOutlineHeadings([]);
+          setOutlineTree([]);
+          setOutlineWarnings([
+            error instanceof Error ? error.message : String(error),
+          ]);
+        }
+      } finally {
+        if (!cancelled) {
+          setOutlineLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openFiles, snapshot?.projectConfig.mainTex, snapshot?.projectConfig.rootPath]);
+
   const runForwardSync = useEffectEvent(async (filePath: string, line: number) => {
     if (!snapshot?.projectConfig.forwardSync || snapshot.compileResult.status !== "success") {
       return;
@@ -263,12 +332,8 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [cursorLine, deferredActiveFile, runForwardSync, snapshot?.compileResult.status]);
 
-  async function saveAndCompile(filePath: string, content: string) {
-    await desktop.saveFile(filePath, content);
-    if (!snapshot?.projectConfig.autoCompile) {
-      return;
-    }
 
+  const runCompile = useEffectEvent(async (filePath: string) => {
     setSnapshot((current) =>
       current
         ? {
@@ -294,7 +359,33 @@ function App() {
         }
         : current,
     );
-  }
+    return compileResult;
+  });
+
+  const saveOpenFiles = useEffectEvent(async (paths: string[]) => {
+    const targets = Array.from(
+      new Set(
+        paths.filter((path) => {
+          const file = openFiles[path];
+          return Boolean(file && dirtyPathSet.has(path));
+        }),
+      ),
+    );
+
+    for (const path of targets) {
+      const file = openFiles[path];
+      if (!file) {
+        continue;
+      }
+      await desktop.saveFile(path, file.content);
+    }
+
+    if (targets.length > 0) {
+      setDirtyPaths((current) => current.filter((path) => !targets.includes(path)));
+    }
+
+    return targets;
+  });
 
   function replaceFileContent(filePath: string, content: string) {
     setOpenFiles((current) => {
@@ -317,15 +408,75 @@ function App() {
       return;
     }
     replaceFileContent(activeFile.path, content);
-    void saveAndCompile(activeFile.path, content);
+    setDirtyPaths((current) =>
+      current.includes(activeFile.path) ? current : [...current, activeFile.path],
+    );
   }
 
-  function openTextFile(path: string) {
+  const handleSaveCurrentFile = useEffectEvent(async () => {
+    if (!snapshot || !activeFile) {
+      return;
+    }
+
+    if (snapshot.projectConfig.autoCompile) {
+      await saveOpenFiles(dirtyPaths);
+      await runCompile(activeFile.path);
+      return;
+    }
+
+    await saveOpenFiles([activeFile.path]);
+  });
+
+  const handleManualCompile = useEffectEvent(async () => {
+    if (!snapshot) {
+      return;
+    }
+
+    await saveOpenFiles(dirtyPaths);
+    setPreviewSelection({ kind: "compile" });
+    await runCompile(activeFilePath || snapshot.projectConfig.mainTex);
+  });
+
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== "b") {
+        return;
+      }
+      event.preventDefault();
+      void handleManualCompile();
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [handleManualCompile]);
+
+  const toggleAutoCompile = useEffectEvent(async () => {
+    if (!snapshot) {
+      return;
+    }
+
+    const projectConfig = await desktop.updateProjectConfig({
+      ...snapshot.projectConfig,
+      autoCompile: !snapshot.projectConfig.autoCompile,
+    });
+
+    setSnapshot((current) => (current ? { ...current, projectConfig } : current));
+  });
+
+  function openTextFile(path: string, line?: number) {
     startTransition(() => {
       setActiveFilePath(path);
       setOpenTabs((current) => (current.includes(path) ? current : [...current, path]));
       setPreviewSelection({ kind: "compile" });
     });
+    if (line) {
+      setCursorLine(line);
+      setEditorJumpTarget((current) => ({
+        path,
+        line,
+        nonce: (current?.nonce ?? 0) + 1,
+      }));
+    }
     void loadTextFile(path);
   }
 
@@ -411,6 +562,7 @@ function App() {
     }
     await desktop.applyAgentPatch(pendingPatch.filePath, pendingPatch.content);
     replaceFileContent(pendingPatch.filePath, pendingPatch.content);
+    setDirtyPaths((current) => current.filter((path) => path !== pendingPatch.filePath));
     setPendingPatch(null);
   }
 
@@ -475,6 +627,7 @@ function App() {
       cursorLine + 1,
     );
     replaceFileContent(result.filePath, result.content);
+    setDirtyPaths((current) => current.filter((path) => path !== result.filePath));
   }
 
   async function handlePageJump(page: number) {
@@ -484,8 +637,7 @@ function App() {
     }
     try {
       const location = await desktop.reverseSearch(page);
-      openTextFile(location.filePath);
-      setCursorLine(location.line);
+      openTextFile(location.filePath, location.line);
     } catch (error) {
       console.warn("reverse sync failed", error);
     }
@@ -550,6 +702,7 @@ function App() {
       delete next[path];
       return next;
     });
+    setDirtyPaths((current) => current.filter((item) => item !== path));
 
     await desktop.deleteFile(path);
     await refreshWorkspace({
@@ -587,6 +740,7 @@ function App() {
       next[newPath] = { ...asset, path: newPath };
       return next;
     });
+    setDirtyPaths((current) => current.map((path) => (path === oldPath ? newPath : path)));
 
     await desktop.renameFile(oldPath, newPath);
     await refreshWorkspace({
@@ -610,7 +764,9 @@ function App() {
       return;
     }
     setOpenFiles({});
+    setDirtyPaths([]);
     setAssetCache({});
+    setEditorJumpTarget(null);
     const nextSnapshot = await desktop.switchProject(selectedDir);
     applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
     if (nextSnapshot.activeFile) {
@@ -628,7 +784,9 @@ function App() {
       return;
     }
     setOpenFiles({});
+    setDirtyPaths([]);
     setAssetCache({});
+    setEditorJumpTarget(null);
     const nextSnapshot = await desktop.createProject(parentDir, projectName.trim());
     applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
     if (nextSnapshot.activeFile) {
@@ -700,6 +858,30 @@ function App() {
     };
   }, [assetCache, handlePageJump, highlightedPage, previewSelection, snapshot]);
 
+  const outlineNode = useMemo(() => {
+    if (outlineLoading) {
+      return <div className="text-subtle text-sm" style={{ padding: "12px 8px" }}>正在分析文档结构…</div>;
+    }
+
+    return (
+      <div>
+        {outlineWarnings.length > 0 && (
+          <div className="card" style={{ margin: "8px 8px 12px" }}>
+            <div className="card-header">Outline Warnings</div>
+            <div className="card-body">有 {outlineWarnings.length} 个 `\\input` / `\\include` 文件未能解析，已跳过。</div>
+          </div>
+        )}
+        <OutlineTree
+          nodes={outlineTree}
+          activeId={activeOutlineId}
+          onSelectNode={(node) => {
+            openTextFile(node.heading.filePath, node.heading.line);
+          }}
+        />
+      </div>
+    );
+  }, [activeOutlineId, openTextFile, outlineLoading, outlineTree, outlineWarnings.length]);
+
   if (bootstrapError) {
     return <div className="app-shell loading-shell">ViewerLeaf failed to start: {bootstrapError}</div>;
   }
@@ -744,7 +926,23 @@ function App() {
           </button>
           {hasProject && (
             <>
+              <label className="topbar-toggle">
+                <input
+                  type="checkbox"
+                  checked={snapshot.projectConfig.autoCompile}
+                  onChange={() => void toggleAutoCompile()}
+                />
+                <span>自动编译（保存时）</span>
+              </label>
               <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
+              <button
+                className="btn-secondary hover-spring"
+                onClick={() => void handleManualCompile()}
+                type="button"
+                disabled={snapshot.compileResult.status === "running"}
+              >
+                {snapshot.compileResult.status === "running" ? "编译中..." : "编译"}
+              </button>
               <button className="btn-primary hover-spring" onClick={handleRunAgent} type="button" disabled={isStreaming}>
                 {isStreaming ? "执行中..." : `执行 ${activeProfile?.label ?? "当前配置"}`}
               </button>
@@ -845,6 +1043,8 @@ function App() {
 
           <Sidebar
             tab={drawerTab}
+            explorerMode={explorerMode}
+            onSelectExplorerMode={setExplorerMode}
             messages={messages}
             profiles={snapshot.profiles}
             activeProfileId={activeProfileId}
@@ -874,13 +1074,14 @@ function App() {
               <ProjectTree
                 nodes={snapshot.tree}
                 activeFile={focusedTreePath}
+                dirtyPaths={dirtyPathSet}
                 onOpenNode={handleOpenNode}
                 onCreateFile={handleCreateFile}
                 onDeleteFile={handleDeleteFile}
                 onRenameFile={handleRenameFile}
               />
             }
-            hidden={drawerTab === "skills"}
+            outlineNode={outlineNode}
           />
 
           {drawerTab === "skills" && (
@@ -994,7 +1195,10 @@ function App() {
                   onClick={() => openTextFile(tab)}
                   type="button"
                 >
-                  <span style={{ marginRight: 8 }}>{tab.split("/").at(-1)}</span>
+                  <span style={{ marginRight: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {tab.split("/").at(-1)}
+                    {dirtyPathSet.has(tab) && <span className="editor-tab-dirty-dot" aria-hidden="true"></span>}
+                  </span>
                   <span
                     className="icon-btn"
                     style={{ width: 16, height: 16 }}
@@ -1014,6 +1218,9 @@ function App() {
               {deferredActiveFile ? (
                 <EditorPane
                   file={deferredActiveFile}
+                  isDirty={dirtyPathSet.has(deferredActiveFile.path)}
+                  targetLine={editorJumpTarget?.path === deferredActiveFile.path ? editorJumpTarget.line : undefined}
+                  targetNonce={editorJumpTarget?.path === deferredActiveFile.path ? editorJumpTarget.nonce : undefined}
                   openTabs={openTabs}
                   onChange={handleFileChange}
                   onCursorChange={(line, selection) => {
@@ -1021,15 +1228,14 @@ function App() {
                     setSelectedText(selection);
                   }}
                   onSelectTab={openTextFile}
-                  onSave={(content) => {
-                    if (!deferredActiveFile) {
-                      return;
-                    }
-                    replaceFileContent(deferredActiveFile.path, content);
-                    void saveAndCompile(deferredActiveFile.path, content);
+                  onSave={() => {
+                    void handleSaveCurrentFile();
                   }}
                   onRunAgent={() => {
                     void handleRunAgent();
+                  }}
+                  onCompile={() => {
+                    void handleManualCompile();
                   }}
                 />
               ) : (

@@ -31,7 +31,7 @@ const projectConfig: ProjectConfig = {
   mainTex: "main.tex",
   engine: "xelatex",
   bibTool: "biber",
-  autoCompile: true,
+  autoCompile: false,
   forwardSync: true,
 };
 
@@ -279,6 +279,13 @@ let lastCompile: CompileResult = {
   timestamp: new Date().toISOString(),
 };
 
+function syncProjectConfigFile() {
+  const configFile = getFile(".viewerleaf/project.json");
+  if (configFile) {
+    configFile.content = JSON.stringify(projectConfig, null, 2);
+  }
+}
+
 function getFile(path: string) {
   return files.find((item) => item.path === path);
 }
@@ -494,11 +501,13 @@ export const mockRuntime = {
 
   async switchProject(rootPath: string): Promise<WorkspaceSnapshot> {
     projectConfig.rootPath = rootPath;
+    syncProjectConfigFile();
     return this.openProject();
   },
 
   async createProject(parentDir: string, projectName: string): Promise<WorkspaceSnapshot> {
     projectConfig.rootPath = `${parentDir}/${projectName}`;
+    syncProjectConfigFile();
     return this.openProject();
   },
 
@@ -554,6 +563,12 @@ export const mockRuntime = {
     }
     activeFile = filePath;
     return { ok: true };
+  },
+
+  async updateProjectConfig(config: ProjectConfig) {
+    Object.assign(projectConfig, config);
+    syncProjectConfigFile();
+    return structuredClone(projectConfig);
   },
 
   async createFile(path: string, content: string) {

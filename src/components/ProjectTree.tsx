@@ -6,6 +6,7 @@ import type { ProjectNode } from "../types";
 interface ProjectTreeProps {
   nodes: ProjectNode[];
   activeFile: string;
+  dirtyPaths?: Set<string>;
   onOpenNode: (node: ProjectNode) => void;
   onCreateFile?: (parentDir: string, fileName: string) => void | Promise<void>;
   onDeleteFile?: (path: string) => void | Promise<void>;
@@ -15,6 +16,7 @@ interface ProjectTreeProps {
 interface TreeNodeProps {
   node: ProjectNode;
   activeFile: string;
+  dirtyPaths: Set<string>;
   depth: number;
   onOpenNode: (node: ProjectNode) => void;
   onContextMenu: (event: MouseEvent, node: ProjectNode) => void;
@@ -39,9 +41,10 @@ function fileIcon(node: ProjectNode) {
   return "T";
 }
 
-function TreeNode({ node, activeFile, depth, onOpenNode, onContextMenu }: TreeNodeProps) {
+function TreeNode({ node, activeFile, dirtyPaths, depth, onOpenNode, onContextMenu }: TreeNodeProps) {
   const paddingLeft = 8 + depth * 12;
   const isActive = node.path === activeFile;
+  const isDirty = dirtyPaths.has(node.path);
 
   if (node.kind === "directory") {
     return (
@@ -59,6 +62,7 @@ function TreeNode({ node, activeFile, depth, onOpenNode, onContextMenu }: TreeNo
             key={child.id}
             node={child}
             activeFile={activeFile}
+            dirtyPaths={dirtyPaths}
             depth={depth + 1}
             onOpenNode={onOpenNode}
             onContextMenu={onContextMenu}
@@ -77,6 +81,7 @@ function TreeNode({ node, activeFile, depth, onOpenNode, onContextMenu }: TreeNo
     >
       <span className="list-item-icon">{fileIcon(node)}</span>
       <span>{node.name}</span>
+      {isDirty && <span className="tree-dirty-dot" aria-hidden="true"></span>}
     </div>
   );
 }
@@ -89,6 +94,7 @@ function dirname(path: string) {
 export function ProjectTree({
   nodes,
   activeFile,
+  dirtyPaths = new Set<string>(),
   onOpenNode,
   onCreateFile,
   onDeleteFile,
@@ -163,6 +169,7 @@ export function ProjectTree({
           key={node.id}
           node={node}
           activeFile={activeFile}
+          dirtyPaths={dirtyPaths}
           depth={0}
           onOpenNode={onOpenNode}
           onContextMenu={handleContextMenu}

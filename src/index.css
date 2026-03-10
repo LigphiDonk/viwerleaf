@@ -123,6 +123,22 @@ button {
   gap: 12px;
 }
 
+.topbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+}
+
+.topbar-toggle input {
+  margin: 0;
+  accent-color: var(--accent-primary);
+}
+
 .topbar-center {
   flex: 1;
   justify-content: center;
@@ -230,6 +246,31 @@ button {
   align-items: center;
 }
 
+.sidebar-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  background: var(--bg-surface-hover);
+  border-radius: var(--radius-full);
+}
+
+.sidebar-segment {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-segment.is-active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
 .sidebar-content {
   flex: 1;
   overflow-y: auto;
@@ -283,6 +324,15 @@ button {
   right: 0;
   height: 2px;
   background: var(--accent-primary);
+}
+
+.editor-tab-dirty-dot,
+.tree-dirty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: 0 0 auto;
 }
 
 .editor-content {
@@ -412,6 +462,40 @@ button {
   width: 16px;
   text-align: center;
   opacity: 0.8;
+}
+
+.outline-item {
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.outline-caret {
+  width: 14px;
+  margin-top: 1px;
+  color: inherit;
+}
+
+.outline-caret.is-placeholder {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.outline-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.outline-title {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.outline-meta {
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 /* App-like Skill Cards */

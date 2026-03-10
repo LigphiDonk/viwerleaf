@@ -6,7 +6,8 @@ use tauri::{AppHandle, State};
 
 use crate::models::{
     AgentMessage, AgentRunResult, AssetResource, FigureBriefDraft, GeneratedAsset, ProfileConfig,
-    ProjectFile, ProviderConfig, SkillManifest, TestResult, UsageRecord, WorkspaceSnapshot,
+    ProjectConfig, ProjectFile, ProviderConfig, SkillManifest, TestResult, UsageRecord,
+    WorkspaceSnapshot,
 };
 use crate::services::{agent, compile, figure, profile, project, provider, skill, sync};
 use crate::state::AppState;
@@ -53,6 +54,14 @@ pub fn save_file(
     project::save_file(&state, &file_path, &content)
         .map(|_| true)
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn update_project_config(
+    state: State<'_, AppState>,
+    config: ProjectConfig,
+) -> Result<ProjectConfig, String> {
+    project::update_project_config(&state, &config).map_err(|err| err.to_string())
 }
 
 #[tauri::command]

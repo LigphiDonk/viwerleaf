@@ -13,8 +13,10 @@ import type {
 } from "../types";
 
 interface SidebarProps {
-    tab: string;
-    messages: AgentMessage[];
+  tab: string;
+  explorerMode: "files" | "outline";
+  onSelectExplorerMode: (mode: "files" | "outline") => void;
+  messages: AgentMessage[];
     profiles: AgentProfile[];
     activeProfileId: string;
     onSelectProfile: (profileId: string) => void;
@@ -33,9 +35,10 @@ interface SidebarProps {
     onInsertFigure: () => void;
     onSelectBrief: (briefId: string) => void;
     onSelectAsset: (assetId: string) => void;
-    providers: ProviderConfig[];
-    explorerNode: ReactNode;
-    onAddProvider: (provider: ProviderConfig) => Promise<void>;
+  providers: ProviderConfig[];
+  explorerNode: ReactNode;
+  outlineNode: ReactNode;
+  onAddProvider: (provider: ProviderConfig) => Promise<void>;
     onDeleteProvider: (providerId: string) => Promise<void>;
     onTestProvider: (providerId: string) => Promise<TestResult>;
     streamText?: string;
@@ -48,8 +51,10 @@ function providerEnabled(provider: ProviderConfig) {
 }
 
 export function Sidebar({
-    tab,
-    messages,
+  tab,
+  explorerMode,
+  onSelectExplorerMode,
+  messages,
     profiles,
     activeProfileId,
     onSelectProfile,
@@ -68,9 +73,10 @@ export function Sidebar({
     onInsertFigure,
     onSelectBrief,
     onSelectAsset,
-    providers,
-    explorerNode,
-    onAddProvider,
+  providers,
+  explorerNode,
+  outlineNode,
+  onAddProvider,
     onDeleteProvider,
     onTestProvider,
     streamText,
@@ -146,14 +152,32 @@ export function Sidebar({
 
     return (
         <div className="primary-sidebar" style={hidden ? { display: 'none' } : undefined}>
-            {tab === "explorer" && (
-                <>
-                    <div className="sidebar-header">项目资源 (Explorer)</div>
-                    <div className="sidebar-content" style={{ padding: "8px 0" }}>
-                        {explorerNode}
-                    </div>
-                </>
-            )}
+      {tab === "explorer" && (
+        <>
+          <div className="sidebar-header">
+            <span>项目资源 (Explorer)</span>
+            <div className="sidebar-segmented">
+              <button
+                type="button"
+                className={`sidebar-segment ${explorerMode === "files" ? "is-active" : ""}`}
+                onClick={() => onSelectExplorerMode("files")}
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                className={`sidebar-segment ${explorerMode === "outline" ? "is-active" : ""}`}
+                onClick={() => onSelectExplorerMode("outline")}
+              >
+                Outline
+              </button>
+            </div>
+          </div>
+          <div className="sidebar-content" style={{ padding: "8px 0" }}>
+            {explorerMode === "files" ? explorerNode : outlineNode}
+          </div>
+        </>
+      )}
 
             {tab === "ai" && (
                 <>

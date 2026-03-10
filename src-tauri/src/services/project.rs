@@ -5,12 +5,13 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::models::{
-    AssetResource, FigureBriefDraft, GeneratedAsset, ProjectFile, ProjectNode, WorkspaceSnapshot,
+    AssetResource, FigureBriefDraft, GeneratedAsset, ProjectConfig, ProjectFile, ProjectNode,
+    WorkspaceSnapshot,
 };
 use crate::services::{figure, profile, provider, skill};
 use crate::state::{
     default_compile_result, initialize_project, load_project_config, persist_recent_workspace,
-    AppState,
+    save_project_config, AppState,
 };
 
 fn detect_language(path: &str) -> String {
@@ -421,4 +422,19 @@ pub fn save_file(state: &AppState, file_path: &str, content: &str) -> Result<()>
     }
     fs::write(absolute, content).context("failed to write project file")?;
     Ok(())
+}
+
+pub fn update_project_config(state: &AppState, config: &ProjectConfig) -> Result<ProjectConfig> {
+    let root = Path::new(&config.root_path);
+    save_project_config(root, config).context("failed to persist project config")?;
+
+    {
+        let mut current = state
+            .project_config
+            .write()
+            .expect("project config lock poisoned");
+        *current = config.clone();
+    }
+
+    Ok(config.clone())
 }

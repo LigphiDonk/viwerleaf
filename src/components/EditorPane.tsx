@@ -1,21 +1,27 @@
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
-import { StreamLanguage } from "@codemirror/language";
+import { EditorSelection } from "@codemirror/state";
+import { StreamLanguage, codeFolding, foldGutter, foldKeymap, foldService } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { search, searchKeymap, openSearchPanel } from "@codemirror/search";
 import { EditorView, keymap } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
+import { buildFoldRanges } from "../lib/outline";
 import type { ProjectFile } from "../types";
 
 interface EditorPaneProps {
   file: ProjectFile;
+  isDirty?: boolean;
+  targetLine?: number;
+  targetNonce?: number;
   openTabs: string[];
   onChange: (value: string) => void;
   onCursorChange: (line: number, selectedText: string) => void;
   onSelectTab: (path: string) => void;
   onSave?: (content: string) => void;
   onRunAgent?: () => void;
+  onCompile?: () => void;
 }
 
 const latexLanguage = StreamLanguage.define(stex);
@@ -102,12 +108,18 @@ function toggleLatexComment(view: EditorView) {
 
 export function EditorPane({
   file,
+  isDirty,
+  targetLine,
+  targetNonce,
   onChange,
   onCursorChange,
   onSave,
   onRunAgent,
+  onCompile,
 }: EditorPaneProps) {
+  const editorRef = useRef<EditorView | null>(null);
   const extensions = useMemo(() => {
+    const foldRanges = buildFoldRanges(file.path, file.content);
     const customKeymap = keymap.of([
       {
         key: "Mod-s",
@@ -148,21 +160,62 @@ export function EditorPane({
           return true;
         },
       },
+      {
+        key: "Mod-Shift-b",
+        run: () => {
+          onCompile?.();
+          return true;
+        },
+      },
     ]);
 
     return [
       latexLanguage,
+      codeFolding(),
+      foldGutter(),
+      keymap.of(foldKeymap),
       search({ top: true }),
       keymap.of([...searchKeymap]),
       customKeymap,
       autocompletion({ override: [latexCompletionSource] }),
+      foldService.of((state, lineStart) => {
+        const line = state.doc.lineAt(lineStart);
+        const foldRange = foldRanges.find((item) => item.fromLine === line.number);
+        if (!foldRange) {
+          return null;
+        }
+
+        const from = line.to;
+        const to = state.doc.line(foldRange.toLine).to;
+        return to > from ? { from, to } : null;
+      }),
     ];
-  }, [onRunAgent, onSave]);
+  }, [file.content, file.path, onCompile, onRunAgent, onSave]);
+
+  useEffect(() => {
+    if (!editorRef.current || !targetLine) {
+      return;
+    }
+
+    const view = editorRef.current;
+    const boundedLine = Math.max(1, Math.min(targetLine, view.state.doc.lines));
+    const line = view.state.doc.line(boundedLine);
+    const selection = EditorSelection.cursor(line.from);
+
+    view.dispatch({
+      selection,
+      effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+    });
+    view.focus();
+  }, [file.path, targetLine, targetNonce]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border-light)", fontSize: "12px", color: "var(--text-secondary)", display: "flex", justifyContent: "space-between", background: "var(--bg-app)" }}>
-        <span>源码路径: {file.path}</span>
+        <span>
+          源码路径: {file.path}
+          {isDirty && <span style={{ color: "var(--danger)", marginLeft: 8 }}>● 未保存</span>}
+        </span>
         <span>{file.language} · 共 {file.content.split("\n").length} 行</span>
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
@@ -175,6 +228,9 @@ export function EditorPane({
             foldGutter: false,
           }}
           extensions={extensions}
+          onCreateEditor={(view) => {
+            editorRef.current = view;
+          }}
           onChange={onChange}
           onUpdate={(update) => {
             if (update.selectionSet || update.docChanged) {

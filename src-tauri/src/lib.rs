@@ -68,6 +68,7 @@ pub fn run() {
             commands::switch_project,
             commands::create_project,
             commands::save_file,
+            commands::update_project_config,
             commands::compile_project,
             commands::forward_search,
             commands::reverse_search,

@@ -8,6 +8,7 @@ import type {
   AssetResource,
   FigureBriefDraft,
   GeneratedAsset,
+  ProjectConfig,
   ProjectFile,
   ProfileConfig,
   ProviderConfig,
@@ -64,6 +65,11 @@ export const desktop = {
   },
   saveFile(filePath: string, content: string) {
     return runOrMock("save_file", { filePath, content }, () => mockRuntime.saveFile(filePath, content));
+  },
+  updateProjectConfig(config: ProjectConfig) {
+    return runOrMock<ProjectConfig>("update_project_config", { config }, () =>
+      mockRuntime.updateProjectConfig?.(config) ?? Promise.resolve(config),
+    );
   },
   compileProject(filePath: string) {
     return runOrMock("compile_project", { filePath }, () => mockRuntime.compileProject(filePath));

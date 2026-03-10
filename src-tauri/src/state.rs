@@ -57,9 +57,22 @@ pub fn empty_project_config() -> ProjectConfig {
         main_tex: "main.tex".into(),
         engine: "xelatex".into(),
         bib_tool: "biber".into(),
-        auto_compile: true,
+        auto_compile: false,
         forward_sync: true,
     }
+}
+
+pub fn save_project_config(root: &Path, config: &ProjectConfig) -> std::io::Result<()> {
+    if root.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    let config_path = root.join(".viewerleaf").join("project.json");
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::write(config_path, serde_json::to_string_pretty(config)?)
 }
 
 pub fn resolve_initial_workspace(app_data_dir: &Path) -> Option<PathBuf> {
@@ -101,7 +114,7 @@ pub fn load_project_config(root: &Path) -> ProjectConfig {
         main_tex: infer_main_tex(root),
         engine: "xelatex".into(),
         bib_tool: "biber".into(),
-        auto_compile: true,
+        auto_compile: false,
         forward_sync: true,
     }
 }
@@ -164,17 +177,16 @@ pub fn initialize_project(root: &Path, project_name: &str) -> std::io::Result<()
         "@article{example2026,\n  title={Example Reference},\n  author={Author, Example},\n  year={2026}\n}\n",
     )?;
 
-    let config = serde_json::json!({
-        "rootPath": root.to_string_lossy(),
-        "mainTex": "main.tex",
-        "engine": "xelatex",
-        "bibTool": "biber",
-        "autoCompile": true,
-        "forwardSync": true
-    });
-    fs::write(
-        root.join(".viewerleaf/project.json"),
-        serde_json::to_string_pretty(&config)?,
+    save_project_config(
+        root,
+        &ProjectConfig {
+            root_path: root.to_string_lossy().to_string(),
+            main_tex: "main.tex".into(),
+            engine: "xelatex".into(),
+            bib_tool: "biber".into(),
+            auto_compile: false,
+            forward_sync: true,
+        },
     )?;
 
     Ok(())
