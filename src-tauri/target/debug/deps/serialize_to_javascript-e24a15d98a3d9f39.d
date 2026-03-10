@@ -1,6 +1,0 @@
-/Users/donkfeng/Desktop/viwerleaf/src-tauri/target/debug/deps/serialize_to_javascript-e24a15d98a3d9f39.d: /Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/lib.rs /Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/private.rs
-
-/Users/donkfeng/Desktop/viwerleaf/src-tauri/target/debug/deps/libserialize_to_javascript-e24a15d98a3d9f39.rmeta: /Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/lib.rs /Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/private.rs
-
-/Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/lib.rs:
-/Users/donkfeng/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serialize-to-javascript-0.1.2/src/private.rs:
