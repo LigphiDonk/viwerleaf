@@ -4,7 +4,8 @@ export type CompileStatus = "idle" | "running" | "success" | "failed" | "cancele
 export type AgentProfileId = "outline" | "draft" | "polish" | "de_ai" | "review";
 export type FigureBriefStatus = "draft" | "ready" | "generated";
 export type AssetKind = "figure" | "table" | "diagram";
-export type DrawerTab = "explorer" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
+export type DrawerTab = "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
+export type WorkspacePaneMode = "files" | "outline";
 export type ProjectFileType =
   | "latex"
   | "bib"

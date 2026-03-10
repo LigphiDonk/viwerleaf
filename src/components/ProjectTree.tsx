@@ -9,6 +9,7 @@ interface ProjectTreeProps {
   dirtyPaths?: Set<string>;
   onOpenNode: (node: ProjectNode) => void;
   onCreateFile?: (parentDir: string, fileName: string) => void | Promise<void>;
+  onCreateFolder?: (parentDir: string, folderName: string) => void | Promise<void>;
   onDeleteFile?: (path: string) => void | Promise<void>;
   onRenameFile?: (oldPath: string, newPath: string) => void | Promise<void>;
 }
@@ -124,6 +125,7 @@ export function ProjectTree({
   dirtyPaths = new Set<string>(),
   onOpenNode,
   onCreateFile,
+  onCreateFolder,
   onDeleteFile,
   onRenameFile,
 }: ProjectTreeProps) {
@@ -199,12 +201,29 @@ export function ProjectTree({
     await onCreateFile(parentDir, fileName.trim());
   }
 
+  async function handleCreateFolder() {
+    if (!contextMenu || !onCreateFolder) {
+      return;
+    }
+    const parentDir =
+      contextMenu.node.kind === "directory" ? contextMenu.node.path : dirname(contextMenu.node.path);
+    const folderName = window.prompt("输入新文件夹名", "new-folder");
+    setContextMenu(null);
+    if (!folderName) {
+      return;
+    }
+    await onCreateFolder(parentDir, folderName.trim());
+  }
+
   async function handleRenameFile() {
-    if (!contextMenu || !onRenameFile || contextMenu.node.kind === "directory") {
+    if (!contextMenu || !onRenameFile) {
       return;
     }
     const currentName = contextMenu.node.name;
-    const nextName = window.prompt("输入新文件名", currentName);
+    const nextName = window.prompt(
+      contextMenu.node.kind === "directory" ? "输入新文件夹名" : "输入新文件名",
+      currentName,
+    );
     setContextMenu(null);
     if (!nextName || nextName.trim() === currentName) {
       return;
@@ -215,10 +234,12 @@ export function ProjectTree({
   }
 
   async function handleDeleteFile() {
-    if (!contextMenu || !onDeleteFile || contextMenu.node.kind === "directory") {
+    if (!contextMenu || !onDeleteFile) {
       return;
     }
-    const confirmed = window.confirm(`确定删除 ${contextMenu.node.name} 吗？`);
+    const confirmed = window.confirm(
+      `确定删除${contextMenu.node.kind === "directory" ? "文件夹" : "文件"} ${contextMenu.node.name} 吗？`,
+    );
     setContextMenu(null);
     if (!confirmed) {
       return;
@@ -261,16 +282,15 @@ export function ProjectTree({
           <button className="btn-secondary" style={{ width: "100%", marginBottom: 6 }} onClick={() => void handleCreateFile()}>
             New File
           </button>
-          {contextMenu.node.kind !== "directory" && (
-            <>
-              <button className="btn-secondary" style={{ width: "100%", marginBottom: 6 }} onClick={() => void handleRenameFile()}>
-                Rename
-              </button>
-              <button className="btn-secondary" style={{ width: "100%" }} onClick={() => void handleDeleteFile()}>
-                Delete
-              </button>
-            </>
-          )}
+          <button className="btn-secondary" style={{ width: "100%", marginBottom: 6 }} onClick={() => void handleCreateFolder()}>
+            New Folder
+          </button>
+          <button className="btn-secondary" style={{ width: "100%", marginBottom: 6 }} onClick={() => void handleRenameFile()}>
+            Rename
+          </button>
+          <button className="btn-secondary" style={{ width: "100%" }} onClick={() => void handleDeleteFile()}>
+            Delete
+          </button>
         </div>
       )}
     </div>

@@ -360,10 +360,22 @@ pub fn create_file(state: State<'_, AppState>, path: String, content: String) ->
 }
 
 #[tauri::command]
+pub fn create_folder(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    let config = state.project_config.read().map_err(|err| err.to_string())?;
+    let full_path = Path::new(&config.root_path).join(&path);
+    fs::create_dir_all(&full_path).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn delete_file(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let config = state.project_config.read().map_err(|err| err.to_string())?;
     let full_path = Path::new(&config.root_path).join(&path);
-    fs::remove_file(&full_path).map_err(|err| err.to_string())?;
+    if full_path.is_dir() {
+        fs::remove_dir_all(&full_path).map_err(|err| err.to_string())?;
+    } else {
+        fs::remove_file(&full_path).map_err(|err| err.to_string())?;
+    }
     Ok(())
 }
 
@@ -375,6 +387,10 @@ pub fn rename_file(
 ) -> Result<(), String> {
     let config = state.project_config.read().map_err(|err| err.to_string())?;
     let root = Path::new(&config.root_path);
-    fs::rename(root.join(&old_path), root.join(&new_path)).map_err(|err| err.to_string())?;
+    let destination = root.join(&new_path);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    fs::rename(root.join(&old_path), destination).map_err(|err| err.to_string())?;
     Ok(())
 }

@@ -181,6 +181,11 @@ export const desktop = {
       mockRuntime.createFile?.(path, content) ?? Promise.resolve(),
     );
   },
+  createFolder(path: string) {
+    return runOrMock("create_folder", { path }, () =>
+      mockRuntime.createFolder?.(path) ?? Promise.resolve(),
+    );
+  },
   deleteFile(path: string) {
     return runOrMock("delete_file", { path }, () =>
       mockRuntime.deleteFile?.(path) ?? Promise.resolve(),

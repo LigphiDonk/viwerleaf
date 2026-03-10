@@ -85,6 +85,16 @@ fn mime_type_for_path(path: &str) -> String {
     }
 }
 
+fn should_ignore_path(rel: &str) -> bool {
+    rel.is_empty()
+        || rel == "."
+        || rel.starts_with(".git/")
+        || rel.starts_with("node_modules/")
+        || rel.starts_with("dist/")
+        || rel.starts_with("src-tauri/target/")
+        || rel.starts_with(".viewerleaf/")
+}
+
 fn build_tree(nodes: &[ProjectNode]) -> Vec<ProjectNode> {
     let mut roots = Vec::new();
     for node in nodes {
@@ -175,22 +185,35 @@ fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
 
     for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
         let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
         let rel = path
             .strip_prefix(root)
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
 
-        if rel.starts_with(".git/")
-            || rel.starts_with("node_modules/")
-            || rel.starts_with("dist/")
-            || rel.starts_with("src-tauri/target/")
-            || rel.starts_with(".viewerleaf/")
-        {
+        if should_ignore_path(&rel) {
+            continue;
+        }
+
+        if path.is_dir() {
+            nodes.push(ProjectNode {
+                id: rel.clone(),
+                name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| rel.clone()),
+                path: rel,
+                kind: "directory".into(),
+                file_type: None,
+                is_text: None,
+                is_previewable: None,
+                size: None,
+                children: Some(Vec::new()),
+            });
+            continue;
+        }
+
+        if !path.is_file() {
             continue;
         }
 

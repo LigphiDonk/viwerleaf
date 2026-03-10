@@ -313,7 +313,20 @@ function buildNodeMeta(path: string) {
   };
 }
 
-function buildTree(paths: string[]) {
+function listAncestorDirectories(path: string) {
+  const parts = path.split("/");
+  const directories: string[] = [];
+
+  for (let index = 1; index < parts.length; index += 1) {
+    directories.push(parts.slice(0, index).join("/"));
+  }
+
+  return directories;
+}
+
+type TreeEntry = { path: string; kind: ProjectNode["kind"] };
+
+function buildTree(entries: TreeEntry[]) {
   const root: ProjectNode = {
     id: "root",
     name: "viewerleaf-demo",
@@ -322,29 +335,25 @@ function buildTree(paths: string[]) {
     children: [],
   };
 
-  for (const fullPath of paths) {
-    const parts = fullPath.split("/");
+  for (const entry of entries) {
+    const parts = entry.path.split("/");
     let current = root;
     parts.forEach((part, index) => {
       const joined = parts.slice(0, index + 1).join("/");
       const isLeaf = index === parts.length - 1;
       let child = current.children?.find((node) => node.path === joined);
       if (!child) {
-        const nodeMeta = isLeaf ? buildNodeMeta(fullPath) : undefined;
+        const nodeMeta = isLeaf && entry.kind !== "directory" ? buildNodeMeta(entry.path) : undefined;
+        const kind = isLeaf ? entry.kind : "directory";
         child = {
           id: joined,
           name: part,
           path: joined,
-          kind:
-            isLeaf && nodeMeta && !nodeMeta.isText
-              ? "asset"
-              : isLeaf
-                ? "file"
-                : "directory",
+          kind,
           fileType: nodeMeta?.fileType,
           isText: nodeMeta?.isText,
           isPreviewable: nodeMeta?.isPreviewable,
-          children: isLeaf ? undefined : [],
+          children: kind === "directory" ? [] : undefined,
         };
         current.children?.push(child);
       }
@@ -366,12 +375,45 @@ function buildTree(paths: string[]) {
   return root.children ?? [];
 }
 
-function listTreePaths() {
-  return [
-    ...files.map((item) => item.path),
-    ...fixtureAssets.map((item) => item.path),
-    ...assets.map((item) => item.filePath),
-  ];
+const virtualDirectories = new Set<string>();
+
+function listTreeEntries(): TreeEntry[] {
+  const entries = new Map<string, TreeEntry>();
+
+  for (const path of virtualDirectories) {
+    entries.set(path, { path, kind: "directory" });
+  }
+
+  for (const file of files) {
+    entries.set(file.path, { path: file.path, kind: buildNodeMeta(file.path).isText ? "file" : "asset" });
+  }
+
+  for (const asset of fixtureAssets) {
+    entries.set(asset.path, { path: asset.path, kind: "asset" });
+  }
+
+  for (const asset of assets) {
+    entries.set(asset.filePath, { path: asset.filePath, kind: "asset" });
+  }
+
+  return Array.from(entries.values());
+}
+
+function hasPath(path: string) {
+  return (
+    virtualDirectories.has(path) ||
+    files.some((item) => item.path === path) ||
+    fixtureAssets.some((item) => item.path === path) ||
+    assets.some((item) => item.filePath === path)
+  );
+}
+
+function replacePathPrefix(path: string, from: string, to: string) {
+  if (path === from) {
+    return to;
+  }
+  const prefix = `${from}/`;
+  return path.startsWith(prefix) ? `${to}/${path.slice(prefix.length)}` : path;
 }
 
 async function generatePreviewPdf(snapshotName: string, diagnostics: Diagnostic[]) {
@@ -484,7 +526,7 @@ function createRunSummary(profileId: AgentProfileId, selection: string) {
 
 export const mockRuntime = {
   async openProject(): Promise<WorkspaceSnapshot> {
-    const tree = buildTree(listTreePaths());
+    const tree = buildTree(listTreeEntries());
     return {
       projectConfig,
       tree,
@@ -572,8 +614,11 @@ export const mockRuntime = {
   },
 
   async createFile(path: string, content: string) {
-    if (getFile(path)) {
+    if (hasPath(path)) {
       throw new Error(`File already exists: ${path}`);
+    }
+    for (const dir of listAncestorDirectories(path)) {
+      virtualDirectories.delete(dir);
     }
     files.push({
       path,
@@ -584,26 +629,86 @@ export const mockRuntime = {
     activeFile = path;
   },
 
-  async deleteFile(path: string) {
-    const index = files.findIndex((item) => item.path === path);
-    if (index < 0) {
-      throw new Error(`File not found: ${path}`);
+  async createFolder(path: string) {
+    if (hasPath(path)) {
+      throw new Error(`Path already exists: ${path}`);
     }
-    files.splice(index, 1);
-    if (activeFile === path) {
+    virtualDirectories.add(path);
+  },
+
+  async deleteFile(path: string) {
+    const prefix = `${path}/`;
+    const nextFiles = files.filter((item) => item.path !== path && !item.path.startsWith(prefix));
+    const nextGeneratedAssets = assets.filter(
+      (item) => item.filePath !== path && !item.filePath.startsWith(prefix),
+    );
+    const nextFixtureAssets = fixtureAssets.filter(
+      (item) => item.path !== path && !item.path.startsWith(prefix),
+    );
+
+    if (
+      nextFiles.length === files.length &&
+      nextGeneratedAssets.length === assets.length &&
+      nextFixtureAssets.length === fixtureAssets.length &&
+      !virtualDirectories.has(path)
+    ) {
+      throw new Error(`Path not found: ${path}`);
+    }
+
+    files.splice(0, files.length, ...nextFiles);
+    assets.splice(0, assets.length, ...nextGeneratedAssets);
+    fixtureAssets.splice(0, fixtureAssets.length, ...nextFixtureAssets);
+
+    for (const dir of Array.from(virtualDirectories)) {
+      if (dir === path || dir.startsWith(prefix)) {
+        virtualDirectories.delete(dir);
+      }
+    }
+
+    if (activeFile === path || activeFile.startsWith(prefix)) {
       activeFile = files[0]?.path ?? "main.tex";
     }
   },
 
   async renameFile(oldPath: string, newPath: string) {
-    const file = getFile(oldPath);
-    if (!file) {
-      throw new Error(`File not found: ${oldPath}`);
+    if (!hasPath(oldPath)) {
+      throw new Error(`Path not found: ${oldPath}`);
     }
-    file.path = newPath;
-    file.language = detectLanguage(newPath);
-    if (activeFile === oldPath) {
-      activeFile = newPath;
+
+    for (const file of files) {
+      if (file.path === oldPath || file.path.startsWith(`${oldPath}/`)) {
+        file.path = replacePathPrefix(file.path, oldPath, newPath);
+        file.language = detectLanguage(file.path);
+      }
+    }
+
+    for (const asset of fixtureAssets) {
+      if (asset.path === oldPath || asset.path.startsWith(`${oldPath}/`)) {
+        asset.path = replacePathPrefix(asset.path, oldPath, newPath);
+      }
+    }
+
+    for (const asset of assets) {
+      if (asset.filePath === oldPath || asset.filePath.startsWith(`${oldPath}/`)) {
+        asset.filePath = replacePathPrefix(asset.filePath, oldPath, newPath);
+      }
+    }
+
+    const nextDirectories = new Set<string>();
+    for (const dir of virtualDirectories) {
+      if (dir === oldPath || dir.startsWith(`${oldPath}/`)) {
+        nextDirectories.add(replacePathPrefix(dir, oldPath, newPath));
+      } else {
+        nextDirectories.add(dir);
+      }
+    }
+    virtualDirectories.clear();
+    for (const dir of nextDirectories) {
+      virtualDirectories.add(dir);
+    }
+
+    if (activeFile === oldPath || activeFile.startsWith(`${oldPath}/`)) {
+      activeFile = replacePathPrefix(activeFile, oldPath, newPath);
     }
     files.sort((left, right) => left.path.localeCompare(right.path));
   },

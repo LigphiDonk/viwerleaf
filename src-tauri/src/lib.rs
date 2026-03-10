@@ -92,6 +92,7 @@ pub fn run() {
             commands::insert_figure_snippet,
             commands::get_usage_stats,
             commands::create_file,
+            commands::create_folder,
             commands::delete_file,
             commands::rename_file
         ])

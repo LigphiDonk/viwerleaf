@@ -1,74 +1,30 @@
-import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
-import { EditorSelection } from "@codemirror/state";
-import { StreamLanguage, codeFolding, foldGutter, foldKeymap, foldService } from "@codemirror/language";
-import { stex } from "@codemirror/legacy-modes/mode/stex";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { codeFolding, foldGutter, foldKeymap } from "@codemirror/language";
 import { search, searchKeymap, openSearchPanel } from "@codemirror/search";
-import { EditorView, keymap } from "@codemirror/view";
-import CodeMirror from "@uiw/react-codemirror";
-import { useEffect, useMemo, useRef } from "react";
+import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
+import {
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+} from "@codemirror/view";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
-import { buildFoldRanges } from "../lib/outline";
+import { latex } from "../editor/languages/latex";
 import type { ProjectFile } from "../types";
+import CodeMirrorView from "./source-editor/CodeMirrorView";
 
 interface EditorPaneProps {
   file: ProjectFile;
   isDirty?: boolean;
   targetLine?: number;
   targetNonce?: number;
-  openTabs: string[];
   onChange: (value: string) => void;
   onCursorChange: (line: number, selectedText: string) => void;
-  onSelectTab: (path: string) => void;
   onSave?: (content: string) => void;
   onRunAgent?: () => void;
   onCompile?: () => void;
-}
-
-const latexLanguage = StreamLanguage.define(stex);
-
-function latexCompletionSource(context: CompletionContext): CompletionResult | null {
-  const word = context.matchBefore(/\\[a-zA-Z]*/);
-  if (!word) {
-    return null;
-  }
-  if (word.from === word.to && !context.explicit) {
-    return null;
-  }
-
-  const commands = [
-    { label: "\\begin{figure}", type: "keyword", apply: "\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{}\n\\caption{}\n\\label{fig:}\n\\end{figure}" },
-    { label: "\\begin{table}", type: "keyword", apply: "\\begin{table}[htbp]\n\\centering\n\\begin{tabular}{}\n\\end{tabular}\n\\caption{}\n\\label{tab:}\n\\end{table}" },
-    { label: "\\begin{equation}", type: "keyword", apply: "\\begin{equation}\n\\label{eq:}\n\\end{equation}" },
-    { label: "\\begin{itemize}", type: "keyword", apply: "\\begin{itemize}\n\\item \n\\end{itemize}" },
-    { label: "\\begin{enumerate}", type: "keyword", apply: "\\begin{enumerate}\n\\item \n\\end{enumerate}" },
-    { label: "\\textbf{}", type: "function", apply: "\\textbf{}" },
-    { label: "\\textit{}", type: "function", apply: "\\textit{}" },
-    { label: "\\emph{}", type: "function", apply: "\\emph{}" },
-    { label: "\\section{}", type: "keyword" },
-    { label: "\\subsection{}", type: "keyword" },
-    { label: "\\subsubsection{}", type: "keyword" },
-    { label: "\\paragraph{}", type: "keyword" },
-    { label: "\\cite{}", type: "function" },
-    { label: "\\ref{}", type: "function" },
-    { label: "\\label{}", type: "function" },
-    { label: "\\eqref{}", type: "function" },
-    { label: "\\frac{}{}", type: "function", apply: "\\frac{}{}" },
-    { label: "\\sqrt{}", type: "function" },
-    { label: "\\sum", type: "function" },
-    { label: "\\int", type: "function" },
-    { label: "\\alpha", type: "constant" },
-    { label: "\\beta", type: "constant" },
-    { label: "\\gamma", type: "constant" },
-    { label: "\\lambda", type: "constant" },
-    { label: "\\theta", type: "constant" },
-    { label: "\\includegraphics[]{}", type: "function", apply: "\\includegraphics[width=0.8\\textwidth]{}" },
-    { label: "\\input{}", type: "keyword" },
-  ];
-
-  return {
-    from: word.from,
-    options: commands,
-  };
 }
 
 function wrapSelection(view: EditorView, before: string, after: string) {
@@ -87,8 +43,7 @@ function toggleLatexComment(view: EditorView) {
   const lines = [];
 
   for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
-    const line = view.state.doc.line(lineNumber);
-    lines.push(line);
+    lines.push(view.state.doc.line(lineNumber));
   }
 
   const shouldUncomment = lines.every((line) => line.text.trimStart().startsWith("%"));
@@ -106,7 +61,7 @@ function toggleLatexComment(view: EditorView) {
   return true;
 }
 
-export function EditorPane({
+function EditorPaneInner({
   file,
   isDirty,
   targetLine,
@@ -117,16 +72,23 @@ export function EditorPane({
   onRunAgent,
   onCompile,
 }: EditorPaneProps) {
-  const editorRef = useRef<EditorView | null>(null);
+  const activePathRef = useRef(file.path);
+  const applyingExternalChangeRef = useRef(false);
+  const [lineCount, setLineCount] = useState(() => file.content.split("\n").length);
+
+  const onChangeRef = useRef(onChange);
+  const onCursorChangeRef = useRef(onCursorChange);
   const onSaveRef = useRef(onSave);
   const onRunAgentRef = useRef(onRunAgent);
   const onCompileRef = useRef(onCompile);
 
   useEffect(() => {
+    onChangeRef.current = onChange;
+    onCursorChangeRef.current = onCursorChange;
     onSaveRef.current = onSave;
     onRunAgentRef.current = onRunAgent;
     onCompileRef.current = onCompile;
-  }, [onCompile, onRunAgent, onSave]);
+  }, [onChange, onCursorChange, onSave, onRunAgent, onCompile]);
 
   const extensions = useMemo(() => {
     const customKeymap = keymap.of([
@@ -179,79 +141,148 @@ export function EditorPane({
     ]);
 
     return [
-      latexLanguage,
+      latex(),
+      lineNumbers(),
+      highlightActiveLine(),
+      highlightActiveLineGutter(),
+      history(),
       codeFolding(),
       foldGutter(),
-      keymap.of(foldKeymap),
       search({ top: true }),
-      keymap.of([...searchKeymap]),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, ...searchKeymap]),
       customKeymap,
-      autocompletion({ override: [latexCompletionSource] }),
-      foldService.of((state, lineStart) => {
-        const foldRanges = buildFoldRanges(file.path, state.doc.toString());
-        const line = state.doc.lineAt(lineStart);
-        const foldRange = foldRanges.find((item) => item.fromLine === line.number);
-        if (!foldRange) {
-          return null;
+    ];
+  }, []);
+
+  const viewRef = useRef<EditorView | null>(null);
+  if (viewRef.current === null) {
+    let view: EditorView;
+    const initialState = EditorState.create({
+      doc: file.content,
+      extensions,
+    });
+
+    view = new EditorView({
+      state: initialState,
+      dispatchTransactions: (transactions: readonly Transaction[]) => {
+        view.update(transactions);
+
+        const docChanged = transactions.some((transaction) => transaction.docChanged);
+        const selectionChanged =
+          docChanged || transactions.some((transaction) => transaction.selection);
+
+        if (docChanged) {
+          setLineCount(view.state.doc.lines);
         }
 
-        const from = line.to;
-        const to = state.doc.line(foldRange.toLine).to;
-        return to > from ? { from, to } : null;
-      }),
-    ];
-  }, [file.path]);
+        if (docChanged && !applyingExternalChangeRef.current) {
+          onChangeRef.current(view.state.doc.toString());
+        }
+
+        if (selectionChanged) {
+          const main = view.state.selection.main;
+          const line = view.state.doc.lineAt(main.head).number;
+          const selectedText = view.state.sliceDoc(main.from, main.to);
+          onCursorChangeRef.current(line, selectedText);
+        }
+      },
+    });
+
+    viewRef.current = view;
+  }
+
+  const view = viewRef.current;
 
   useEffect(() => {
-    if (!editorRef.current || !targetLine) {
+    setLineCount(view.state.doc.lines);
+    const main = view.state.selection.main;
+    const line = view.state.doc.lineAt(main.head).number;
+    const selectedText = view.state.sliceDoc(main.from, main.to);
+    onCursorChangeRef.current(line, selectedText);
+  }, [view]);
+
+  useEffect(() => {
+    const pathChanged = activePathRef.current !== file.path;
+    const currentText = view.state.doc.toString();
+    const contentChanged = currentText !== file.content;
+
+    if (!pathChanged && !contentChanged) {
       return;
     }
 
-    const view = editorRef.current;
+    activePathRef.current = file.path;
+    applyingExternalChangeRef.current = true;
+    try {
+      view.dispatch({
+        changes: {
+          from: 0,
+          to: view.state.doc.length,
+          insert: file.content,
+        },
+        selection: pathChanged ? EditorSelection.cursor(0) : view.state.selection,
+      });
+    } finally {
+      applyingExternalChangeRef.current = false;
+    }
+
+    setLineCount(view.state.doc.lines);
+  }, [file.content, file.path, view]);
+
+  useEffect(() => {
+    if (!targetLine) {
+      return;
+    }
+
     const boundedLine = Math.max(1, Math.min(targetLine, view.state.doc.lines));
     const line = view.state.doc.line(boundedLine);
-    const selection = EditorSelection.cursor(line.from);
 
     view.dispatch({
-      selection,
+      selection: EditorSelection.cursor(line.from),
       effects: EditorView.scrollIntoView(line.from, { y: "center" }),
     });
     view.focus();
-  }, [file.path, targetLine, targetNonce]);
+  }, [targetLine, targetNonce, view]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border-light)", fontSize: "12px", color: "var(--text-secondary)", display: "flex", justifyContent: "space-between", background: "var(--bg-app)" }}>
+      <div
+        style={{
+          padding: "6px 16px",
+          borderBottom: "1px solid var(--border-light)",
+          fontSize: "12px",
+          color: "var(--text-secondary)",
+          display: "flex",
+          justifyContent: "space-between",
+          background: "var(--bg-app)",
+        }}
+      >
         <span>
           源码路径: {file.path}
           {isDirty && <span style={{ color: "var(--danger)", marginLeft: 8 }}>● 未保存</span>}
         </span>
-        <span>{file.language} · 共 {file.content.split("\n").length} 行</span>
+        <span>{file.language} · 共 {lineCount} 行</span>
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
-        <CodeMirror
-          value={file.content}
-          height="100%"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLine: true,
-            foldGutter: false,
-          }}
-          extensions={extensions}
-          onCreateEditor={(view) => {
-            editorRef.current = view;
-          }}
-          onChange={onChange}
-          onUpdate={(update) => {
-            if (update.selectionSet || update.docChanged) {
-              const main = update.state.selection.main;
-              const line = update.state.doc.lineAt(main.head).number;
-              const selectedText = update.state.sliceDoc(main.from, main.to);
-              onCursorChange(line, selectedText);
-            }
-          }}
-        />
+        <CodeMirrorView view={view} />
       </div>
     </div>
   );
 }
+
+function areEditorPanePropsEqual(previous: EditorPaneProps, next: EditorPaneProps) {
+  return (
+    previous.file.path === next.file.path &&
+    previous.file.language === next.file.language &&
+    previous.file.content === next.file.content &&
+    previous.isDirty === next.isDirty &&
+    previous.targetLine === next.targetLine &&
+    previous.targetNonce === next.targetNonce &&
+    previous.onChange === next.onChange &&
+    previous.onCursorChange === next.onCursorChange &&
+    previous.onSave === next.onSave &&
+    previous.onRunAgent === next.onRunAgent &&
+    previous.onCompile === next.onCompile
+  );
+}
+
+export const EditorPane = memo(EditorPaneInner, areEditorPanePropsEqual);

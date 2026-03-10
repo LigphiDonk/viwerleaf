@@ -174,6 +174,14 @@ button {
   overflow: hidden;
 }
 
+.workspace-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-app);
+}
+
 /* Activity Bar (Leftmost) */
 .activity-bar {
   flex: 0 0 48px;
@@ -226,12 +234,68 @@ button {
 
 /* Primary Sidebar */
 .primary-sidebar {
-  flex: 0 0 260px;
+  flex: 0 0 300px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.workspace-left-pane {
+  flex: 0 0 250px;
+  min-width: 220px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-pane-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-pane-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.workspace-pane-subtitle {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workspace-pane-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.workspace-pane-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 12px 0;
+  padding: 2px;
+  background: var(--bg-surface-hover);
+  border-radius: var(--radius-full);
+}
+
+.workspace-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 0 14px;
 }
 
 .sidebar-header {
@@ -275,6 +339,79 @@ button {
   flex: 1;
   overflow-y: auto;
   padding: 0 12px 16px;
+}
+
+.sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar-stack-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-grid-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sidebar-section-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sidebar-empty-state {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 18px 12px;
+  font-size: 12px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.sidebar-compact-card {
+  margin-bottom: 0;
+  text-align: left;
+}
+
+.sidebar-card-active {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-bg);
+}
+
+.sidebar-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.sidebar-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sidebar-metric-card {
+  margin-bottom: 0;
+  padding: 12px;
+}
+
+.sidebar-metric-value {
+  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* Editor Area */
@@ -343,11 +480,12 @@ button {
 
 /* Preview Area */
 .preview-area {
-  flex: 0 0 45%;
+  flex: 0 0 42%;
   border-left: 1px solid var(--border-light);
   background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
+  min-width: 320px;
 }
 
 .preview-header {
@@ -365,6 +503,64 @@ button {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
+}
+
+.preview-content.preview-content-pdf {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-sidebar);
+  flex-wrap: wrap;
+}
+
+.pdf-page-input {
+  width: 64px;
+  height: 30px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.pdfjs-viewer {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #e5e7eb;
+}
+
+.pdfjs-viewer.pdfjs-viewer-outer {
+  overflow: hidden;
+}
+
+.pdfjs-viewer-inner {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  width: 100%;
+  height: 100%;
+  -webkit-font-smoothing: initial;
+  -moz-osx-font-smoothing: initial;
+}
+
+.pdfjs-viewer-inner .pdfViewer {
+  min-height: 100%;
+  padding: 16px 0;
+}
+
+.pdfjs-viewer-inner .pdfViewer .page {
+  margin: 0 auto 14px auto;
+  box-shadow: var(--shadow-md);
 }
 
 /* Common UI Elements */

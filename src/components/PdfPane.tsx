@@ -1,12 +1,7 @@
-import { pdfjs, Document, Page } from "react-pdf";
-import { useEffect, useMemo, useState } from "react";
+import { memo } from "react";
 
+import PdfJsViewer, { toPdfSource } from "./pdf-preview/PdfJsViewer";
 import type { CompileResult } from "../types";
-
-import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
-
-const PAGE_WINDOW_RADIUS = 2;
 
 export type PreviewPaneState =
   | {
@@ -38,118 +33,7 @@ export type PreviewPaneState =
       description: string;
     };
 
-function PdfPreview({
-  file,
-  isLoading,
-  highlightedPage,
-  onPageJump,
-  statusLabel,
-}: {
-  file?: { data: Uint8Array } | string;
-  isLoading?: boolean;
-  highlightedPage: number;
-  onPageJump: (page: number) => void;
-  statusLabel: string;
-}) {
-  const [pageCount, setPageCount] = useState(0);
-
-  useEffect(() => {
-    setPageCount(0);
-  }, [file]);
-
-  const pagesToRender = useMemo(() => {
-    if (pageCount <= 0) {
-      return [Math.max(highlightedPage, 1)];
-    }
-
-    const start = Math.max(1, highlightedPage - PAGE_WINDOW_RADIUS);
-    const end = Math.min(pageCount, highlightedPage + PAGE_WINDOW_RADIUS);
-    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-  }, [highlightedPage, pageCount]);
-
-  return (
-    <>
-      <div className="preview-header">
-        <span style={{ fontWeight: 500 }}>PDF 预览</span>
-        <div style={{ display: "flex", gap: "12px", color: "var(--text-secondary)" }}>
-          <span>{statusLabel}</span>
-          <span>{pageCount ? `共 ${pageCount} 页` : "暂无页面"}</span>
-          {pageCount > pagesToRender.length ? <span>仅渲染当前页附近</span> : null}
-        </div>
-      </div>
-
-      {pageCount > 0 && (
-        <div
-          style={{
-            padding: "8px 16px",
-            borderBottom: "1px solid var(--border-light)",
-            display: "flex",
-            gap: "6px",
-            overflowX: "auto",
-            background: "var(--bg-sidebar)",
-          }}
-        >
-          {Array.from({ length: Math.max(pageCount, 1) }, (_, index) => (
-            <button
-              key={`jump-${index + 1}`}
-              className={highlightedPage === index + 1 ? "btn-primary" : "btn-secondary"}
-              style={{ padding: "4px 10px", borderRadius: "4px", fontSize: "11px", minWidth: "32px" }}
-              onClick={() => onPageJump(index + 1)}
-            >
-              {index + 1}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="preview-content">
-        {file ? (
-          <Document
-            file={file}
-            onLoadSuccess={({ numPages }) => setPageCount(numPages)}
-            loading={<div className="pdf-placeholder">正在加载 PDF 文件...</div>}
-            error={<div className="pdf-placeholder">无法加载预览文档</div>}
-          >
-            {pagesToRender.map((page) => {
-              return (
-                <div key={page} className={`pdf-page-frame ${highlightedPage === page ? "is-highlighted" : ""}`}>
-                  <button className="pdf-page-hitbox" onClick={() => onPageJump(page)} type="button">
-                    <Page pageNumber={page} width={430} renderTextLayer={false} renderAnnotationLayer={false} />
-                  </button>
-                </div>
-              );
-            })}
-          </Document>
-        ) : (
-          <div className="pdf-placeholder">{isLoading ? "正在加载 PDF 文件..." : "暂无可预览的 PDF"}</div>
-        )}
-      </div>
-    </>
-  );
-}
-
-export function PdfPane({ preview }: { preview: PreviewPaneState }) {
-  const compilePdfData = preview.kind === "compile" ? preview.fileData ?? preview.compileResult.pdfData : undefined;
-  const compileFileUrl = preview.kind === "compile" ? preview.fileUrl : undefined;
-  const directPdfData = preview.kind === "pdf" ? preview.fileData : undefined;
-  const directPdfUrl = preview.kind === "pdf" ? preview.fileUrl : undefined;
-
-  const compilePdfFile = useMemo(() => {
-    if (!compilePdfData) {
-      return compileFileUrl;
-    }
-    return { data: compilePdfData };
-  }, [compileFileUrl, compilePdfData]);
-
-  const directPdfFile = useMemo(() => {
-    if (!directPdfData) {
-      return directPdfUrl;
-    }
-    return { data: directPdfData };
-  }, [directPdfData, directPdfUrl]);
-
-  const pdfFile = preview.kind === "compile" ? compilePdfFile : directPdfFile;
-
+function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
   if (preview.kind === "image") {
     return (
       <>
@@ -184,8 +68,9 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
 
   if (preview.kind === "pdf") {
     return (
-      <PdfPreview
-        file={pdfFile}
+      <PdfJsViewer
+        source={toPdfSource(preview.fileData, preview.fileUrl)}
+        reloadKey={preview.fileUrl ?? preview.title}
         isLoading={preview.isLoading}
         highlightedPage={preview.highlightedPage}
         onPageJump={preview.onPageJump}
@@ -202,8 +87,9 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
         : preview.compileResult.status;
 
   return (
-    <PdfPreview
-      file={pdfFile}
+    <PdfJsViewer
+      source={toPdfSource(preview.fileData ?? preview.compileResult.pdfData, preview.fileUrl)}
+      reloadKey={`${preview.compileResult.timestamp}:${preview.compileResult.pdfPath ?? preview.fileUrl ?? ""}`}
       isLoading={preview.isLoading}
       highlightedPage={preview.highlightedPage}
       onPageJump={preview.onPageJump}
@@ -211,3 +97,48 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
     />
   );
 }
+
+function arePreviewPaneStatesEqual(previous: PreviewPaneState, next: PreviewPaneState) {
+  if (previous.kind !== next.kind) {
+    return false;
+  }
+
+  if (previous.kind === "image" && next.kind === "image") {
+    return previous.title === next.title && previous.fileUrl === next.fileUrl;
+  }
+
+  if (previous.kind === "unsupported" && next.kind === "unsupported") {
+    return previous.title === next.title && previous.description === next.description;
+  }
+
+  if (previous.kind === "pdf" && next.kind === "pdf") {
+    return (
+      previous.title === next.title &&
+      previous.fileData === next.fileData &&
+      previous.fileUrl === next.fileUrl &&
+      previous.isLoading === next.isLoading &&
+      previous.highlightedPage === next.highlightedPage &&
+      previous.onPageJump === next.onPageJump
+    );
+  }
+
+  if (previous.kind === "compile" && next.kind === "compile") {
+    return (
+      previous.compileResult.status === next.compileResult.status &&
+      previous.compileResult.timestamp === next.compileResult.timestamp &&
+      previous.compileResult.pdfPath === next.compileResult.pdfPath &&
+      previous.fileData === next.fileData &&
+      previous.fileUrl === next.fileUrl &&
+      previous.isLoading === next.isLoading &&
+      previous.highlightedPage === next.highlightedPage &&
+      previous.onPageJump === next.onPageJump
+    );
+  }
+
+  return false;
+}
+
+export const PdfPane = memo(
+  PdfPaneInner,
+  (previous, next) => arePreviewPaneStatesEqual(previous.preview, next.preview),
+);
