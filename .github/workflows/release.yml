@@ -2,8 +2,8 @@ name: Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -68,9 +68,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'ViewerLeaf ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install ViewerLeaf.'
-          releaseDraft: true
+          tagName: v${{ github.sha }}
+          releaseName: 'ViewerLeaf build-${{ github.run_number }}'
+          releaseBody: |
+            Auto-built from commit ${{ github.sha }}.
+            See the assets below to download and install ViewerLeaf.
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
