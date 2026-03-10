@@ -118,13 +118,22 @@ export function EditorPane({
   onCompile,
 }: EditorPaneProps) {
   const editorRef = useRef<EditorView | null>(null);
+  const onSaveRef = useRef(onSave);
+  const onRunAgentRef = useRef(onRunAgent);
+  const onCompileRef = useRef(onCompile);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+    onRunAgentRef.current = onRunAgent;
+    onCompileRef.current = onCompile;
+  }, [onCompile, onRunAgent, onSave]);
+
   const extensions = useMemo(() => {
-    const foldRanges = buildFoldRanges(file.path, file.content);
     const customKeymap = keymap.of([
       {
         key: "Mod-s",
         run: (view) => {
-          onSave?.(view.state.doc.toString());
+          onSaveRef.current?.(view.state.doc.toString());
           return true;
         },
       },
@@ -145,7 +154,7 @@ export function EditorPane({
       {
         key: "Mod-Enter",
         run: () => {
-          onRunAgent?.();
+          onRunAgentRef.current?.();
           return true;
         },
       },
@@ -163,7 +172,7 @@ export function EditorPane({
       {
         key: "Mod-Shift-b",
         run: () => {
-          onCompile?.();
+          onCompileRef.current?.();
           return true;
         },
       },
@@ -179,6 +188,7 @@ export function EditorPane({
       customKeymap,
       autocompletion({ override: [latexCompletionSource] }),
       foldService.of((state, lineStart) => {
+        const foldRanges = buildFoldRanges(file.path, state.doc.toString());
         const line = state.doc.lineAt(lineStart);
         const foldRange = foldRanges.find((item) => item.fromLine === line.number);
         if (!foldRange) {
@@ -190,7 +200,7 @@ export function EditorPane({
         return to > from ? { from, to } : null;
       }),
     ];
-  }, [file.content, file.path, onCompile, onRunAgent, onSave]);
+  }, [file.path]);
 
   useEffect(() => {
     if (!editorRef.current || !targetLine) {

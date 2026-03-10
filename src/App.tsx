@@ -413,6 +413,15 @@ function App() {
     );
   }
 
+  const handleEditorChange = useEffectEvent((content: string) => {
+    handleFileChange(content);
+  });
+
+  const handleEditorCursorChange = useEffectEvent((line: number, selection: string) => {
+    setCursorLine(line);
+    setSelectedText(selection);
+  });
+
   const handleSaveCurrentFile = useEffectEvent(async () => {
     if (!snapshot || !activeFile) {
       return;
@@ -461,6 +470,18 @@ function App() {
     });
 
     setSnapshot((current) => (current ? { ...current, projectConfig } : current));
+  });
+
+  const handleEditorSave = useEffectEvent(() => {
+    void handleSaveCurrentFile();
+  });
+
+  const handleEditorCompile = useEffectEvent(() => {
+    void handleManualCompile();
+  });
+
+  const handleEditorRunAgent = useEffectEvent(() => {
+    void handleRunAgent();
   });
 
   function openTextFile(path: string, line?: number) {
@@ -1222,21 +1243,12 @@ function App() {
                   targetLine={editorJumpTarget?.path === deferredActiveFile.path ? editorJumpTarget.line : undefined}
                   targetNonce={editorJumpTarget?.path === deferredActiveFile.path ? editorJumpTarget.nonce : undefined}
                   openTabs={openTabs}
-                  onChange={handleFileChange}
-                  onCursorChange={(line, selection) => {
-                    setCursorLine(line);
-                    setSelectedText(selection);
-                  }}
+                  onChange={handleEditorChange}
+                  onCursorChange={handleEditorCursorChange}
                   onSelectTab={openTextFile}
-                  onSave={() => {
-                    void handleSaveCurrentFile();
-                  }}
-                  onRunAgent={() => {
-                    void handleRunAgent();
-                  }}
-                  onCompile={() => {
-                    void handleManualCompile();
-                  }}
+                  onSave={handleEditorSave}
+                  onRunAgent={handleEditorRunAgent}
+                  onCompile={handleEditorCompile}
                 />
               ) : (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>

@@ -107,18 +107,18 @@ function PdfPreview({
 }
 
 export function PdfPane({ preview }: { preview: PreviewPaneState }) {
-  const pdfFile = useMemo(() => {
-    if (preview.kind === "compile") {
-      if (preview.compileResult.pdfData) {
-        return { data: preview.compileResult.pdfData };
-      }
-      return preview.fileUrl;
+  const compilePdfData = preview.kind === "compile" ? preview.compileResult.pdfData : undefined;
+  const compileFileUrl = preview.kind === "compile" ? preview.fileUrl : undefined;
+  const directPdfUrl = preview.kind === "pdf" ? preview.fileUrl : undefined;
+
+  const compilePdfFile = useMemo(() => {
+    if (!compilePdfData) {
+      return compileFileUrl;
     }
-    if (preview.kind === "pdf") {
-      return preview.fileUrl;
-    }
-    return undefined;
-  }, [preview]);
+    return { data: compilePdfData };
+  }, [compileFileUrl, compilePdfData]);
+
+  const pdfFile = preview.kind === "compile" ? compilePdfFile : directPdfUrl;
 
   if (preview.kind === "image") {
     return (

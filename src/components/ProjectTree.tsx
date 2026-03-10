@@ -17,8 +17,10 @@ interface TreeNodeProps {
   node: ProjectNode;
   activeFile: string;
   dirtyPaths: Set<string>;
+  collapsedDirs: Set<string>;
   depth: number;
   onOpenNode: (node: ProjectNode) => void;
+  onToggleDirectory: (path: string) => void;
   onContextMenu: (event: MouseEvent, node: ProjectNode) => void;
 }
 
@@ -41,33 +43,58 @@ function fileIcon(node: ProjectNode) {
   return "T";
 }
 
-function TreeNode({ node, activeFile, dirtyPaths, depth, onOpenNode, onContextMenu }: TreeNodeProps) {
+function ancestorDirectories(path: string) {
+  const parts = path.split("/");
+  const ancestors: string[] = [];
+
+  for (let index = 1; index < parts.length; index += 1) {
+    ancestors.push(parts.slice(0, index).join("/"));
+  }
+
+  return ancestors;
+}
+
+function TreeNode({
+  node,
+  activeFile,
+  dirtyPaths,
+  collapsedDirs,
+  depth,
+  onOpenNode,
+  onToggleDirectory,
+  onContextMenu,
+}: TreeNodeProps) {
   const paddingLeft = 8 + depth * 12;
   const isActive = node.path === activeFile;
   const isDirty = dirtyPaths.has(node.path);
 
   if (node.kind === "directory") {
+    const isCollapsed = collapsedDirs.has(node.path);
     return (
       <>
         <div
           className="list-item"
           style={{ paddingLeft }}
+          onClick={() => onToggleDirectory(node.path)}
           onContextMenu={(event) => onContextMenu(event, node)}
         >
-          <span className="list-item-icon">▾</span>
+          <span className="list-item-icon">{isCollapsed ? "▸" : "▾"}</span>
           <span>{node.name}</span>
         </div>
-        {node.children?.map((child) => (
-          <TreeNode
-            key={child.id}
-            node={child}
-            activeFile={activeFile}
-            dirtyPaths={dirtyPaths}
-            depth={depth + 1}
-            onOpenNode={onOpenNode}
-            onContextMenu={onContextMenu}
-          />
-        ))}
+        {!isCollapsed &&
+          node.children?.map((child) => (
+            <TreeNode
+              key={child.id}
+              node={child}
+              activeFile={activeFile}
+              dirtyPaths={dirtyPaths}
+              collapsedDirs={collapsedDirs}
+              depth={depth + 1}
+              onOpenNode={onOpenNode}
+              onToggleDirectory={onToggleDirectory}
+              onContextMenu={onContextMenu}
+            />
+          ))}
       </>
     );
   }
@@ -101,6 +128,7 @@ export function ProjectTree({
   onRenameFile,
 }: ProjectTreeProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: ProjectNode } | null>(null);
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     function closeMenu() {
@@ -116,9 +144,45 @@ export function ProjectTree({
     };
   }, []);
 
+  useEffect(() => {
+    if (!activeFile) {
+      return;
+    }
+
+    const ancestors = ancestorDirectories(activeFile);
+    if (!ancestors.length) {
+      return;
+    }
+
+    setCollapsedDirs((current) => {
+      const next = new Set(current);
+      let changed = false;
+
+      for (const path of ancestors) {
+        if (next.delete(path)) {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [activeFile]);
+
   function handleContextMenu(event: MouseEvent, node: ProjectNode) {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, node });
+  }
+
+  function handleToggleDirectory(path: string) {
+    setCollapsedDirs((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
   }
 
   async function handleCreateFile() {
@@ -170,8 +234,10 @@ export function ProjectTree({
           node={node}
           activeFile={activeFile}
           dirtyPaths={dirtyPaths}
+          collapsedDirs={collapsedDirs}
           depth={0}
           onOpenNode={onOpenNode}
+          onToggleDirectory={handleToggleDirectory}
           onContextMenu={handleContextMenu}
         />
       ))}
