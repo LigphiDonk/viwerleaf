@@ -171,8 +171,8 @@ function App() {
       rootChanged
         ? {}
         : Object.fromEntries(
-            Object.entries(current).filter(([path]) => getNodeByPath(nextSnapshot.tree, path)),
-          ),
+          Object.entries(current).filter(([path]) => getNodeByPath(nextSnapshot.tree, path)),
+        ),
     );
     setSelectedBrief((current) =>
       current ? nextSnapshot.figureBriefs.find((item) => item.id === current.id) ?? null : null,
@@ -209,9 +209,9 @@ function App() {
           setSnapshot((current) =>
             current
               ? {
-                  ...current,
-                  compileResult,
-                }
+                ...current,
+                compileResult,
+              }
               : current,
           );
         }
@@ -272,16 +272,16 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            compileResult: {
-              ...current.compileResult,
-              status: "running",
-              logOutput: "Compile queued…",
-              diagnostics: current.compileResult.diagnostics,
-              logPath: current.compileResult.logPath,
-              timestamp: new Date().toISOString(),
-            },
-          }
+          ...current,
+          compileResult: {
+            ...current.compileResult,
+            status: "running",
+            logOutput: "Compile queued…",
+            diagnostics: current.compileResult.diagnostics,
+            logPath: current.compileResult.logPath,
+            timestamp: new Date().toISOString(),
+          },
+        }
         : current,
     );
 
@@ -289,9 +289,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            compileResult,
-          }
+          ...current,
+          compileResult,
+        }
         : current,
     );
   }
@@ -422,9 +422,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            figureBriefs: [brief, ...current.figureBriefs.filter((item) => item.id !== brief.id)],
-          }
+          ...current,
+          figureBriefs: [brief, ...current.figureBriefs.filter((item) => item.id !== brief.id)],
+        }
         : current,
     );
     setSelectedBrief(brief);
@@ -440,9 +440,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            figureBriefs: current.figureBriefs.map((item) => (item.id === updated.id ? updated : item)),
-          }
+          ...current,
+          figureBriefs: current.figureBriefs.map((item) => (item.id === updated.id ? updated : item)),
+        }
         : current,
     );
   }
@@ -457,9 +457,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
-          }
+          ...current,
+          assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+        }
         : current,
     );
   }
@@ -513,11 +513,11 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-            ...current,
-            skills: current.skills.map((item) =>
-              item.id === skill.id ? { ...item, enabled, isEnabled: enabled } : item,
-            ),
-          }
+          ...current,
+          skills: current.skills.map((item) =>
+            item.id === skill.id ? { ...item, enabled, isEnabled: enabled } : item,
+          ),
+        }
         : current,
     );
   }
@@ -880,9 +880,10 @@ function App() {
                 onRenameFile={handleRenameFile}
               />
             }
+            hidden={drawerTab === "skills"}
           />
 
-          {drawerTab === "skills" ? (
+          {drawerTab === "skills" && (
             <div className="full-page-view" style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg-app)", overflow: "auto", padding: "32px" }}>
               <div style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "1px solid var(--border-light)", paddingBottom: "16px", marginBottom: "32px" }}>
@@ -982,72 +983,70 @@ function App() {
                 )}
               </div>
             </div>
-          ) : (
-            <>
-              <div className="editor-area">
-                <div className="editor-tabs">
-                  {openTabs.map((tab) => (
-                    <button
-                      key={tab}
-                      className={`editor-tab ${tab === activeFilePath ? "is-active" : ""}`}
-                      onClick={() => openTextFile(tab)}
-                      type="button"
-                    >
-                      <span style={{ marginRight: 8 }}>{tab.split("/").at(-1)}</span>
-                      <span
-                        className="icon-btn"
-                        style={{ width: 16, height: 16 }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          const closed = closeTextTab(openTabs, activeFilePath, tab);
-                          setOpenTabs(closed.openTabs);
-                          setActiveFilePath(closed.activePath);
-                        }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="editor-content">
-                  {deferredActiveFile ? (
-                    <EditorPane
-                      file={deferredActiveFile}
-                      openTabs={openTabs}
-                      onChange={handleFileChange}
-                      onCursorChange={(line, selection) => {
-                        setCursorLine(line);
-                        setSelectedText(selection);
-                      }}
-                      onSelectTab={openTextFile}
-                      onSave={(content) => {
-                        if (!deferredActiveFile) {
-                          return;
-                        }
-                        replaceFileContent(deferredActiveFile.path, content);
-                        void saveAndCompile(deferredActiveFile.path, content);
-                      }}
-                      onRunAgent={() => {
-                        void handleRunAgent();
-                      }}
-                    />
-                  ) : (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
-                      {loadingFilePath ? "正在加载文件…" : "选择一个文本文件开始编辑"}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="preview-area">
-                {previewState ? (
-                  <PdfPane preview={previewState} />
-                ) : (
-                  <div className="pdf-placeholder">暂无预览内容</div>
-                )}
-              </div>
-            </>
           )}
+
+          <div className="editor-area" style={{ display: drawerTab === "skills" ? "none" : undefined }}>
+            <div className="editor-tabs">
+              {openTabs.map((tab) => (
+                <button
+                  key={tab}
+                  className={`editor-tab ${tab === activeFilePath ? "is-active" : ""}`}
+                  onClick={() => openTextFile(tab)}
+                  type="button"
+                >
+                  <span style={{ marginRight: 8 }}>{tab.split("/").at(-1)}</span>
+                  <span
+                    className="icon-btn"
+                    style={{ width: 16, height: 16 }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const closed = closeTextTab(openTabs, activeFilePath, tab);
+                      setOpenTabs(closed.openTabs);
+                      setActiveFilePath(closed.activePath);
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="editor-content">
+              {deferredActiveFile ? (
+                <EditorPane
+                  file={deferredActiveFile}
+                  openTabs={openTabs}
+                  onChange={handleFileChange}
+                  onCursorChange={(line, selection) => {
+                    setCursorLine(line);
+                    setSelectedText(selection);
+                  }}
+                  onSelectTab={openTextFile}
+                  onSave={(content) => {
+                    if (!deferredActiveFile) {
+                      return;
+                    }
+                    replaceFileContent(deferredActiveFile.path, content);
+                    void saveAndCompile(deferredActiveFile.path, content);
+                  }}
+                  onRunAgent={() => {
+                    void handleRunAgent();
+                  }}
+                />
+              ) : (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
+                  {loadingFilePath ? "正在加载文件…" : "选择一个文本文件开始编辑"}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="preview-area" style={{ display: drawerTab === "skills" ? "none" : undefined }}>
+            {previewState ? (
+              <PdfPane preview={previewState} />
+            ) : (
+              <div className="pdf-placeholder">暂无预览内容</div>
+            )}
+          </div>
         </div>
       )}
     </div>
