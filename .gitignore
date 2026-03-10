@@ -45,3 +45,6 @@ main.log
 
 # Sidecar node_modules
 sidecar/node_modules
+
+# OMC files
+.omc

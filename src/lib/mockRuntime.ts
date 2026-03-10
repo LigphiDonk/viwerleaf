@@ -247,6 +247,19 @@ function getFile(path: string) {
   return files.find((item) => item.path === path);
 }
 
+function detectLanguage(path: string): ProjectFile["language"] {
+  if (path.endsWith(".tex") || path.endsWith(".sty") || path.endsWith(".cls")) {
+    return "latex";
+  }
+  if (path.endsWith(".bib")) {
+    return "bib";
+  }
+  if (path.endsWith(".json")) {
+    return "json";
+  }
+  return "text";
+}
+
 function buildTree(paths: string[]) {
   const root: ProjectNode = {
     id: "root",
@@ -425,6 +438,43 @@ export const mockRuntime = {
     return { ok: true };
   },
 
+  async createFile(path: string, content: string) {
+    if (getFile(path)) {
+      throw new Error(`File already exists: ${path}`);
+    }
+    files.push({
+      path,
+      language: detectLanguage(path),
+      content,
+    });
+    files.sort((left, right) => left.path.localeCompare(right.path));
+    activeFile = path;
+  },
+
+  async deleteFile(path: string) {
+    const index = files.findIndex((item) => item.path === path);
+    if (index < 0) {
+      throw new Error(`File not found: ${path}`);
+    }
+    files.splice(index, 1);
+    if (activeFile === path) {
+      activeFile = files[0]?.path ?? "main.tex";
+    }
+  },
+
+  async renameFile(oldPath: string, newPath: string) {
+    const file = getFile(oldPath);
+    if (!file) {
+      throw new Error(`File not found: ${oldPath}`);
+    }
+    file.path = newPath;
+    file.language = detectLanguage(newPath);
+    if (activeFile === oldPath) {
+      activeFile = newPath;
+    }
+    files.sort((left, right) => left.path.localeCompare(right.path));
+  },
+
   async compileProject(filePath: string): Promise<CompileResult> {
     compileCounter += 1;
     const file = getFile(filePath) ?? files[0];
@@ -546,6 +596,28 @@ export const mockRuntime = {
     return structuredClone(provider);
   },
 
+  async deleteProvider(id: string) {
+    const index = providers.findIndex((item) => item.id === id);
+    if (index >= 0) {
+      providers.splice(index, 1);
+    }
+  },
+
+  async testProvider(_id: string) {
+    return { success: true, latencyMs: 42 };
+  },
+
+  async listProfiles() {
+    return structuredClone(profiles);
+  },
+
+  async updateProfile(config: AgentProfile) {
+    const index = profiles.findIndex((item) => item.id === config.id);
+    if (index >= 0) {
+      profiles[index] = structuredClone(config);
+    }
+  },
+
   async createFigureBrief(sectionRef: string, selectedText: string): Promise<FigureBriefDraft> {
     const brief: FigureBriefDraft = {
       id: crypto.randomUUID(),
@@ -654,5 +726,9 @@ export const mockRuntime = {
 
   async getAgentMessages() {
     return structuredClone(agentMessages);
+  },
+
+  async getUsageStats() {
+    return [];
   },
 };

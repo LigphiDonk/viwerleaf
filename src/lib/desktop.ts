@@ -1,13 +1,19 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AgentMessage,
   AgentProfileId,
+  AgentRunResult,
   FigureBriefDraft,
   GeneratedAsset,
+  ProfileConfig,
   ProviderConfig,
   SkillManifest,
+  StreamChunk,
   SyncLocation,
+  TestResult,
+  UsageRecord,
   WorkspaceSnapshot,
 } from "../types";
 import { mockRuntime } from "./mockRuntime";
@@ -25,7 +31,7 @@ async function runOrMock<T>(command: string, args: Record<string, unknown>, fall
 
 export const desktop = {
   openProject() {
-    return runOrMock("open_project", {}, () => mockRuntime.openProject());
+    return runOrMock<WorkspaceSnapshot>("open_project", {}, () => mockRuntime.openProject());
   },
   saveFile(filePath: string, content: string) {
     return runOrMock("save_file", { filePath, content }, () => mockRuntime.saveFile(filePath, content));
@@ -34,18 +40,23 @@ export const desktop = {
     return runOrMock("compile_project", { filePath }, () => mockRuntime.compileProject(filePath));
   },
   forwardSearch(filePath: string, line: number) {
-    return runOrMock<SyncLocation>("forward_search", { filePath, line }, () => mockRuntime.forwardSearch(filePath, line));
+    return runOrMock<SyncLocation>("forward_search", { filePath, line }, () =>
+      mockRuntime.forwardSearch(filePath, line),
+    );
   },
   reverseSearch(page: number) {
     return runOrMock<SyncLocation>("reverse_search", { page }, () => mockRuntime.reverseSearch(page));
   },
   runAgent(profileId: AgentProfileId, filePath: string, selectedText: string) {
-    return runOrMock("run_agent", { profileId, filePath, selectedText }, () =>
+    return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText }, () =>
       mockRuntime.runAgent(profileId, filePath, selectedText),
     );
   },
   applyAgentPatch(filePath: string, content: string) {
     return runOrMock("apply_agent_patch", { filePath, content }, () => mockRuntime.applyAgentPatch(filePath, content));
+  },
+  getAgentMessages(sessionId?: string) {
+    return runOrMock<AgentMessage[]>("get_agent_messages", { sessionId }, () => mockRuntime.getAgentMessages());
   },
   listSkills() {
     return runOrMock<SkillManifest[]>("list_skills", {}, () => mockRuntime.listSkills());
@@ -64,6 +75,24 @@ export const desktop = {
   },
   updateProvider(providerId: string, patch: Partial<ProviderConfig>) {
     return runOrMock("update_provider", { providerId, patch }, () => mockRuntime.updateProvider(providerId, patch));
+  },
+  deleteProvider(id: string) {
+    return runOrMock("delete_provider", { id }, () => mockRuntime.deleteProvider?.(id) ?? Promise.resolve());
+  },
+  testProvider(id: string) {
+    return runOrMock<TestResult>("test_provider", { id }, () =>
+      mockRuntime.testProvider?.(id) ?? Promise.resolve({ success: true, latencyMs: 0 }),
+    );
+  },
+  listProfiles() {
+    return runOrMock<ProfileConfig[]>("list_profiles", {}, () =>
+      mockRuntime.listProfiles?.() ?? Promise.resolve([]),
+    );
+  },
+  updateProfile(config: ProfileConfig) {
+    return runOrMock("update_profile", { config }, () =>
+      mockRuntime.updateProfile?.(config) ?? Promise.resolve(),
+    );
   },
   createFigureBrief(sectionRef: string, selectedText: string) {
     return runOrMock<FigureBriefDraft>("create_figure_brief", { sectionRef, selectedText }, () =>
@@ -86,8 +115,33 @@ export const desktop = {
       mockRuntime.insertFigureSnippet(filePath, assetId, caption, line),
     );
   },
-  getAgentMessages() {
-    return runOrMock<AgentMessage[]>("get_agent_messages", {}, () => mockRuntime.getAgentMessages());
+  getUsageStats() {
+    return runOrMock<UsageRecord[]>("get_usage_stats", {}, () =>
+      mockRuntime.getUsageStats?.() ?? Promise.resolve([]),
+    );
+  },
+  createFile(path: string, content = "") {
+    return runOrMock("create_file", { path, content }, () =>
+      mockRuntime.createFile?.(path, content) ?? Promise.resolve(),
+    );
+  },
+  deleteFile(path: string) {
+    return runOrMock("delete_file", { path }, () =>
+      mockRuntime.deleteFile?.(path) ?? Promise.resolve(),
+    );
+  },
+  renameFile(oldPath: string, newPath: string) {
+    return runOrMock("rename_file", { oldPath, newPath }, () =>
+      mockRuntime.renameFile?.(oldPath, newPath) ?? Promise.resolve(),
+    );
+  },
+  onAgentStream(callback: (chunk: StreamChunk) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) {
+      return Promise.resolve(() => {});
+    }
+    return listen<StreamChunk>("agent:stream", (event) => {
+      callback(event.payload);
+    });
   },
 };
 

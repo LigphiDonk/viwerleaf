@@ -3,8 +3,8 @@ export type BibTool = "bibtex" | "biber" | "auto";
 export type CompileStatus = "idle" | "running" | "success" | "failed" | "canceled";
 export type AgentProfileId = "outline" | "draft" | "polish" | "de_ai" | "review";
 export type FigureBriefStatus = "draft" | "ready" | "generated";
-export type AssetKind = "figure";
-export type DrawerTab = "explorer" | "ai" | "logs" | "figures" | "skills" | "providers";
+export type AssetKind = "figure" | "table" | "diagram";
+export type DrawerTab = "explorer" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
 
 export interface ProjectConfig {
   rootPath: string;
@@ -17,7 +17,7 @@ export interface ProjectConfig {
 
 export interface ProjectFile {
   path: string;
-  language: "latex" | "bib" | "text" | "json";
+  language: "latex" | "bib" | "text" | "json" | string;
   content: string;
 }
 
@@ -29,15 +29,23 @@ export interface ProjectNode {
   children?: ProjectNode[];
 }
 
+export interface TreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children?: TreeNode[];
+}
+
 export interface Diagnostic {
   filePath: string;
   line: number;
-  level: "error" | "warning" | "info";
+  level: "error" | "warning" | "info" | string;
   message: string;
+  file?: string;
 }
 
 export interface CompileResult {
-  status: CompileStatus;
+  status: CompileStatus | string;
   pdfPath?: string;
   pdfData?: Uint8Array;
   synctexPath?: string;
@@ -59,42 +67,66 @@ export interface SkillManifest {
   name: string;
   version: string;
   stages: string[];
-  promptFiles: string[];
-  toolAllowlist: string[];
-  enabled: boolean;
-  source: "git" | "zip" | "local";
+  tools?: string[];
+  source: "builtin" | "local" | "project" | "git" | "zip";
+  dirPath?: string;
+  isEnabled?: boolean;
+  promptFiles?: string[];
+  toolAllowlist?: string[];
+  enabled?: boolean;
 }
 
 export interface ProviderConfig {
   id: string;
-  vendor: string;
+  vendor: "openai" | "anthropic" | "openrouter" | "deepseek" | "google" | "banana" | "custom" | string;
   baseUrl: string;
-  authRef: string;
   defaultModel: string;
+  name?: string;
+  apiKey?: string;
+  isEnabled?: boolean;
+  sortOrder?: number;
+  metaJson?: string;
+  authRef?: string;
 }
 
-export interface AgentProfile {
-  id: AgentProfileId;
-  stage: string;
+export interface ProviderPreset {
+  vendor: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+}
+
+export interface ProfileConfig {
+  id: AgentProfileId | string;
+  label: string;
+  summary: string;
+  stage: "planning" | "drafting" | "revision" | "submission" | "figures" | string;
   providerId: string;
   model: string;
   skillIds: string[];
   toolAllowlist: string[];
-  outputMode: "rewrite" | "outline" | "review";
-  label: string;
-  summary: string;
+  outputMode: "rewrite" | "outline" | "review" | string;
+  sortOrder?: number;
+  isBuiltin?: boolean;
 }
+
+export type AgentProfile = ProfileConfig;
 
 export interface AgentMessage {
   id: string;
-  role: "user" | "assistant" | "system";
-  profileId: AgentProfileId;
+  role: "user" | "assistant" | "system" | "tool";
+  profileId: AgentProfileId | string;
   content: string;
-  timestamp: string;
+  sessionId?: string;
+  toolId?: string;
+  toolArgs?: string;
+  createdAt?: string;
+  timestamp?: string;
 }
 
 export interface AgentRunResult {
-  message: AgentMessage;
+  sessionId?: string;
+  message?: AgentMessage;
   suggestedPatch?: {
     filePath: string;
     content: string;
@@ -102,12 +134,20 @@ export interface AgentRunResult {
   };
 }
 
+export type StreamChunk =
+  | { type: "text_delta"; content: string }
+  | { type: "tool_call_start"; toolId: string; args: Record<string, unknown> }
+  | { type: "tool_call_result"; toolId: string; output: string }
+  | { type: "patch"; filePath: string; startLine: number; endLine: number; newContent: string }
+  | { type: "error"; message: string }
+  | { type: "done"; usage: { inputTokens: number; outputTokens: number; model: string } };
+
 export interface FigureBriefDraft {
   id: string;
   sourceSectionRef: string;
   briefMarkdown: string;
   promptPayload: string;
-  status: FigureBriefStatus;
+  status: FigureBriefStatus | string;
 }
 
 export interface GeneratedAsset {
@@ -115,8 +155,24 @@ export interface GeneratedAsset {
   kind: AssetKind;
   filePath: string;
   sourceBriefId: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, unknown>;
   previewUri: string;
+}
+
+export interface UsageRecord {
+  id: string;
+  sessionId: string;
+  providerId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: string;
+}
+
+export interface TestResult {
+  success: boolean;
+  latencyMs: number;
+  error?: string;
 }
 
 export interface WorkspaceSnapshot {
@@ -126,7 +182,7 @@ export interface WorkspaceSnapshot {
   activeFile: string;
   providers: ProviderConfig[];
   skills: SkillManifest[];
-  profiles: AgentProfile[];
+  profiles: ProfileConfig[];
   compileResult: CompileResult;
   figureBriefs: FigureBriefDraft[];
   assets: GeneratedAsset[];

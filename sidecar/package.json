@@ -1,5 +1,9 @@
 {
   "name": "viewerleaf-sidecar",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "openai": "^4.80.0"
+  }
 }

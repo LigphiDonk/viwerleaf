@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     pub root_path: String,
@@ -12,7 +11,7 @@ pub struct ProjectConfig {
     pub forward_sync: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFile {
     pub path: String,
@@ -20,7 +19,7 @@ pub struct ProjectFile {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectNode {
     pub id: String,
@@ -30,16 +29,79 @@ pub struct ProjectNode {
     pub children: Option<Vec<ProjectNode>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct Diagnostic {
-    pub file_path: String,
-    pub line: usize,
-    pub level: String,
-    pub message: String,
+pub struct ProviderConfig {
+    pub id: String,
+    pub name: String,
+    pub vendor: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub default_model: String,
+    pub is_enabled: bool,
+    pub sort_order: i32,
+    pub meta_json: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileConfig {
+    pub id: String,
+    pub label: String,
+    pub summary: String,
+    pub stage: String,
+    pub provider_id: String,
+    pub model: String,
+    pub skill_ids: Vec<String>,
+    pub tool_allowlist: Vec<String>,
+    pub output_mode: String,
+    pub sort_order: i32,
+    pub is_builtin: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub stages: Vec<String>,
+    pub tools: Vec<String>,
+    pub source: String,
+    pub dir_path: String,
+    pub is_enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessage {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub profile_id: String,
+    pub tool_id: String,
+    pub tool_args: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSuggestedPatch {
+    pub file_path: String,
+    pub content: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunResult {
+    pub session_id: Option<String>,
+    pub message: Option<AgentMessage>,
+    pub suggested_patch: Option<AgentSuggestedPatch>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileResult {
     pub status: String,
@@ -51,7 +113,16 @@ pub struct CompileResult {
     pub timestamp: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    pub file_path: String,
+    pub line: usize,
+    pub level: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncLocation {
     pub file_path: String,
@@ -60,30 +131,7 @@ pub struct SyncLocation {
     pub page: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillManifest {
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    pub stages: Vec<String>,
-    pub prompt_files: Vec<String>,
-    pub tool_allowlist: Vec<String>,
-    pub enabled: bool,
-    pub source: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderConfig {
-    pub id: String,
-    pub vendor: String,
-    pub base_url: String,
-    pub auth_ref: String,
-    pub default_model: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct FigureBriefDraft {
     pub id: String,
@@ -93,43 +141,101 @@ pub struct FigureBriefDraft {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneratedAsset {
     pub id: String,
     pub kind: String,
     pub file_path: String,
     pub source_brief_id: String,
-    pub metadata: HashMap<String, String>,
+    pub metadata: serde_json::Value,
     pub preview_uri: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentMessage {
+pub struct UsageRecord {
     pub id: String,
-    pub role: String,
+    pub session_id: String,
+    pub provider_id: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TestResult {
+    pub success: bool,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRequest {
+    pub session_id: String,
     pub profile_id: String,
-    pub content: String,
-    pub timestamp: String,
+    pub provider: AgentProvider,
+    pub system_prompt: String,
+    pub tools: Vec<String>,
+    pub context: AgentContext,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSuggestedPatch {
-    pub file_path: String,
-    pub content: String,
-    pub summary: String,
+pub struct AgentProvider {
+    pub vendor: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunResult {
-    pub message: AgentMessage,
-    pub suggested_patch: Option<AgentSuggestedPatch>,
+pub struct AgentContext {
+    pub project_root: String,
+    pub active_file_path: String,
+    pub selected_text: String,
+    pub full_file_content: String,
+    pub cursor_line: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum StreamChunk {
+    #[serde(rename = "text_delta")]
+    TextDelta { content: String },
+    #[serde(rename = "tool_call_start")]
+    ToolCallStart {
+        tool_id: String,
+        args: serde_json::Value,
+    },
+    #[serde(rename = "tool_call_result")]
+    ToolCallResult { tool_id: String, output: String },
+    #[serde(rename = "patch")]
+    Patch {
+        file_path: String,
+        start_line: u32,
+        end_line: u32,
+        new_content: String,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
+    #[serde(rename = "done")]
+    Done { usage: UsageInfo },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageInfo {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub model: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub project_config: ProjectConfig,
@@ -138,7 +244,7 @@ pub struct WorkspaceSnapshot {
     pub active_file: String,
     pub providers: Vec<ProviderConfig>,
     pub skills: Vec<SkillManifest>,
-    pub profiles: Vec<serde_json::Value>,
+    pub profiles: Vec<ProfileConfig>,
     pub compile_result: CompileResult,
     pub figure_briefs: Vec<FigureBriefDraft>,
     pub assets: Vec<GeneratedAsset>,

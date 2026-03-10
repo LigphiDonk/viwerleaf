@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
+
 use walkdir::WalkDir;
 
-use crate::models::{ProjectConfig, ProjectFile, ProjectNode, WorkspaceSnapshot};
-use crate::state::{default_profiles, AppState};
+use crate::models::{FigureBriefDraft, GeneratedAsset, ProjectFile, ProjectNode, WorkspaceSnapshot};
+use crate::services::{figure, profile, provider, skill};
+use crate::state::{load_project_config, AppState};
 
 fn detect_language(path: &str) -> String {
     if path.ends_with(".tex") || path.ends_with(".sty") || path.ends_with(".cls") {
@@ -19,13 +21,11 @@ fn detect_language(path: &str) -> String {
 }
 
 fn build_tree(paths: &[String]) -> Vec<ProjectNode> {
-    let mut roots: Vec<ProjectNode> = Vec::new();
-
+    let mut roots = Vec::new();
     for full_path in paths {
-        let parts: Vec<&str> = full_path.split('/').collect();
+        let parts = full_path.split('/').collect::<Vec<_>>();
         insert_node(&mut roots, &parts, full_path);
     }
-
     sort_nodes(&mut roots);
     roots
 }
@@ -66,7 +66,7 @@ fn insert_node(nodes: &mut Vec<ProjectNode>, parts: &[&str], full_path: &str) {
 
     if parts.len() > 1 {
         if entry.children.is_none() {
-          entry.children = Some(Vec::new());
+            entry.children = Some(Vec::new());
         }
         insert_node(entry.children.as_mut().expect("children present"), &parts[1..], full_path);
     }
@@ -89,20 +89,25 @@ fn sort_nodes(nodes: &mut [ProjectNode]) {
     }
 }
 
+fn load_assets_and_briefs(state: &AppState) -> Result<(Vec<FigureBriefDraft>, Vec<GeneratedAsset>)> {
+    let conn = state.db.lock().expect("db lock poisoned");
+    let briefs = figure::list_briefs(&conn).map_err(anyhow::Error::msg)?;
+    let assets = figure::list_assets(&conn).map_err(anyhow::Error::msg)?;
+    Ok((briefs, assets))
+}
+
 pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
-    let mut store = state.store.write().expect("store lock poisoned");
-    let root_path = store.project_config.root_path.clone();
+    let root_path = {
+        let current = state.project_config.read().expect("project config lock poisoned");
+        current.root_path.clone()
+    };
     let root = Path::new(&root_path);
-    let config_path = root.join(".viewerleaf").join("project.json");
 
-    if config_path.exists() {
-        let raw = fs::read_to_string(&config_path).context("failed to read project config")?;
-        store.project_config = serde_json::from_str::<ProjectConfig>(&raw)
-            .context("failed to parse project config")?;
+    let config = load_project_config(root);
+    {
+        let mut current = state.project_config.write().expect("project config lock poisoned");
+        *current = config.clone();
     }
-
-    let root_path = store.project_config.root_path.clone();
-    let root = Path::new(&root_path);
 
     let mut files = Vec::new();
     for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
@@ -110,6 +115,7 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
         if !path.is_file() {
             continue;
         }
+
         let rel = path
             .strip_prefix(root)
             .unwrap_or(path)
@@ -120,6 +126,7 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
             || rel.starts_with("node_modules/")
             || rel.starts_with("dist/")
             || rel.starts_with("src-tauri/target/")
+            || rel.starts_with(".viewerleaf/")
         {
             continue;
         }
@@ -140,44 +147,57 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
         });
     }
 
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+
     if files.is_empty() {
         files.push(ProjectFile {
-            path: store.project_config.main_tex.clone(),
+            path: config.main_tex.clone(),
             language: "latex".into(),
             content: String::new(),
         });
     }
 
+    let (briefs, assets) = load_assets_and_briefs(state)?;
     let mut tree_paths = files.iter().map(|file| file.path.clone()).collect::<Vec<_>>();
-    tree_paths.extend(store.assets.iter().map(|asset| asset.file_path.clone()));
-    let active = files
+    tree_paths.extend(assets.iter().map(|asset| asset.file_path.clone()));
+
+    let conn = state.db.lock().expect("db lock poisoned");
+    let providers = provider::list_providers(&conn).map_err(anyhow::Error::msg)?;
+    let profiles = profile::list_profiles(&conn).map_err(anyhow::Error::msg)?;
+    let skills = skill::list_skills(&conn).map_err(anyhow::Error::msg)?;
+    drop(conn);
+
+    let active_file = files
         .iter()
         .find(|file| file.path.ends_with("introduction.tex"))
         .map(|file| file.path.clone())
         .unwrap_or_else(|| files[0].path.clone());
 
+    let compile_result = state
+        .last_compile
+        .read()
+        .expect("compile result lock poisoned")
+        .clone();
+
     Ok(WorkspaceSnapshot {
-        project_config: store.project_config.clone(),
+        project_config: config,
         tree: build_tree(&tree_paths),
         files,
-        active_file: active,
-        providers: store.providers.clone(),
-        skills: store.skills.clone(),
-        profiles: default_profiles(),
-        compile_result: store.last_compile.clone(),
-        figure_briefs: store.briefs.clone(),
-        assets: store.assets.clone(),
+        active_file,
+        providers,
+        skills,
+        profiles,
+        compile_result,
+        figure_briefs: briefs,
+        assets,
     })
 }
 
 pub fn save_file(state: &AppState, file_path: &str, content: &str) -> Result<()> {
-    let root = state
-        .store
-        .read()
-        .expect("store lock poisoned")
-        .project_config
-        .root_path
-        .clone();
+    let root = {
+        let config = state.project_config.read().expect("project config lock poisoned");
+        config.root_path.clone()
+    };
     let absolute = Path::new(&root).join(file_path);
     if let Some(parent) = absolute.parent() {
         fs::create_dir_all(parent).context("failed to create parent directory")?;

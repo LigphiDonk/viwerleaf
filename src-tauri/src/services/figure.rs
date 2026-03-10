@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use rusqlite::{params, Connection};
+use std::path::Path;
 use std::process::Command;
 use uuid::Uuid;
 
 use crate::models::{FigureBriefDraft, GeneratedAsset};
+use crate::services::provider;
 use crate::state::AppState;
 
 pub fn create_brief(
@@ -22,18 +24,67 @@ pub fn create_brief(
         ),
         status: "draft".into(),
     };
-    let mut store = state.store.write().expect("store lock poisoned");
-    store.briefs.insert(0, brief.clone());
+
+    let conn = state.db.lock().expect("db lock poisoned");
+    conn.execute(
+        "INSERT INTO figure_briefs (id, source_section, brief_markdown, prompt_payload, status) VALUES (?1,?2,?3,?4,?5)",
+        params![
+            brief.id,
+            brief.source_section_ref,
+            brief.brief_markdown,
+            brief.prompt_payload,
+            brief.status
+        ],
+    )
+    .context("failed to persist figure brief")?;
+
     Ok(brief)
 }
 
+pub fn list_briefs(conn: &Connection) -> Result<Vec<FigureBriefDraft>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, source_section, brief_markdown, prompt_payload, status FROM figure_briefs ORDER BY created_at DESC",
+        )
+        .map_err(|err| err.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(FigureBriefDraft {
+                id: row.get(0)?,
+                source_section_ref: row.get(1)?,
+                brief_markdown: row.get(2)?,
+                prompt_payload: row.get(3)?,
+                status: row.get(4)?,
+            })
+        })
+        .map_err(|err| err.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|err| err.to_string())
+}
+
+pub fn get_brief(conn: &Connection, brief_id: &str) -> Result<FigureBriefDraft, String> {
+    conn.query_row(
+        "SELECT id, source_section, brief_markdown, prompt_payload, status FROM figure_briefs WHERE id=?1",
+        params![brief_id],
+        |row| {
+            Ok(FigureBriefDraft {
+                id: row.get(0)?,
+                source_section_ref: row.get(1)?,
+                brief_markdown: row.get(2)?,
+                prompt_payload: row.get(3)?,
+                status: row.get(4)?,
+            })
+        },
+    )
+    .map_err(|err| err.to_string())
+}
+
 pub fn run_figure_skill(state: &AppState, brief_id: &str) -> Result<FigureBriefDraft> {
-    let mut store = state.store.write().expect("store lock poisoned");
-    let brief = store
-        .briefs
-        .iter_mut()
-        .find(|item| item.id == brief_id)
-        .context("figure brief not found")?;
+    let conn = state.db.lock().expect("db lock poisoned");
+    let brief = get_brief(&conn, brief_id).map_err(anyhow::Error::msg)?;
+    drop(conn);
 
     let payload = serde_json::json!({
         "briefId": brief.id,
@@ -42,61 +93,152 @@ pub fn run_figure_skill(state: &AppState, brief_id: &str) -> Result<FigureBriefD
     });
 
     let output = Command::new("node")
-        .args(["sidecar/index.mjs", "figure-skill", &payload.to_string()])
-        .current_dir(std::env::current_dir()?)
+        .arg(state.app_root.join("sidecar/index.mjs"))
+        .args(["figure-skill", &payload.to_string()])
+        .current_dir(&state.app_root)
         .output()
         .context("failed to run figure skill sidecar")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let updated = serde_json::from_str::<FigureBriefDraft>(&stdout)
         .context("failed to parse figure skill response")?;
-    *brief = updated.clone();
+
+    let conn = state.db.lock().expect("db lock poisoned");
+    conn.execute(
+        "UPDATE figure_briefs SET source_section=?2, brief_markdown=?3, prompt_payload=?4, status=?5 WHERE id=?1",
+        params![
+            updated.id,
+            updated.source_section_ref,
+            updated.brief_markdown,
+            updated.prompt_payload,
+            updated.status
+        ],
+    )
+    .context("failed to update figure brief")?;
+
     Ok(updated)
 }
 
 pub fn run_banana_generation(state: &AppState, brief_id: &str) -> Result<GeneratedAsset> {
-    let store = state.store.read().expect("store lock poisoned");
-    let brief = store
-        .briefs
-        .iter()
-        .find(|item| item.id == brief_id)
-        .cloned()
-        .context("figure brief not found")?;
-    drop(store);
+    let root = {
+        let config = state.project_config.read().expect("project config lock poisoned");
+        config.root_path.clone()
+    };
+    let conn = state.db.lock().expect("db lock poisoned");
+    let brief = get_brief(&conn, brief_id).map_err(anyhow::Error::msg)?;
+    let banana = provider::find_first_by_vendor(&conn, "banana")
+        .map_err(|err| anyhow::anyhow!("banana provider not configured: {err}"))?;
+    drop(conn);
 
     let payload = serde_json::json!({
-        "briefId": brief.id,
-        "promptPayload": brief.prompt_payload
+        "apiKey": banana.api_key,
+        "baseUrl": banana.base_url,
+        "prompt": brief.prompt_payload,
+        "projectRoot": root,
+        "briefId": brief.id
     });
 
     let output = Command::new("node")
-        .args(["sidecar/index.mjs", "banana", &payload.to_string()])
-        .current_dir(std::env::current_dir()?)
+        .arg(state.app_root.join("sidecar/index.mjs"))
+        .args(["banana", &payload.to_string()])
+        .current_dir(&state.app_root)
         .output()
         .context("failed to run banana sidecar")?;
 
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "banana sidecar failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut asset = serde_json::from_str::<GeneratedAsset>(&stdout)
-        .context("failed to parse banana response")?;
+    serde_json::from_str::<GeneratedAsset>(&stdout)
+        .context("failed to parse banana response")
+}
 
-    if asset.id.is_empty() {
-        asset.id = Uuid::new_v4().to_string();
-    }
-    if asset.metadata.is_empty() {
-        asset.metadata = HashMap::new();
+pub fn register_asset(state: &AppState, asset: GeneratedAsset) -> Result<GeneratedAsset> {
+    let conn = state.db.lock().expect("db lock poisoned");
+    conn.execute(
+        "INSERT INTO assets (id, kind, file_path, source_brief_id, metadata_json) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, file_path=excluded.file_path, source_brief_id=excluded.source_brief_id, metadata_json=excluded.metadata_json",
+        params![
+            asset.id,
+            asset.kind,
+            asset.file_path,
+            asset.source_brief_id,
+            asset.metadata.to_string()
+        ],
+    )
+    .context("failed to persist asset")?;
+
+    if asset.source_brief_id.is_empty() {
+        return Ok(asset);
     }
 
-    let mut store = state.store.write().expect("store lock poisoned");
-    store.assets.insert(0, asset.clone());
+    let _ = conn.execute(
+        "UPDATE figure_briefs SET status='generated' WHERE id=?1",
+        params![asset.source_brief_id],
+    );
+
     Ok(asset)
 }
 
-pub fn register_asset(state: &AppState, asset: GeneratedAsset) -> GeneratedAsset {
-    let mut store = state.store.write().expect("store lock poisoned");
-    if !store.assets.iter().any(|item| item.id == asset.id) {
-        store.assets.insert(0, asset.clone());
-    }
-    asset
+pub fn list_assets(conn: &Connection) -> Result<Vec<GeneratedAsset>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, file_path, source_brief_id, metadata_json FROM assets ORDER BY created_at DESC",
+        )
+        .map_err(|err| err.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let metadata_json: String = row.get(4)?;
+            let file_path: String = row.get(2)?;
+            let preview_uri = Path::new(&file_path)
+                .canonicalize()
+                .ok()
+                .map(|path| format!("file://{}", path.to_string_lossy()))
+                .unwrap_or_default();
+
+            Ok(GeneratedAsset {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                file_path,
+                source_brief_id: row.get(3)?,
+                metadata: serde_json::from_str(&metadata_json).unwrap_or_else(|_| serde_json::json!({})),
+                preview_uri,
+            })
+        })
+        .map_err(|err| err.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|err| err.to_string())
+}
+
+pub fn get_asset(conn: &Connection, asset_id: &str) -> Result<GeneratedAsset, String> {
+    conn.query_row(
+        "SELECT id, kind, file_path, source_brief_id, metadata_json FROM assets WHERE id=?1",
+        params![asset_id],
+        |row| {
+            let metadata_json: String = row.get(4)?;
+            let file_path: String = row.get(2)?;
+            let preview_uri = Path::new(&file_path)
+                .canonicalize()
+                .ok()
+                .map(|path| format!("file://{}", path.to_string_lossy()))
+                .unwrap_or_default();
+
+            Ok(GeneratedAsset {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                file_path,
+                source_brief_id: row.get(3)?,
+                metadata: serde_json::from_str(&metadata_json).unwrap_or_else(|_| serde_json::json!({})),
+                preview_uri,
+            })
+        },
+    )
+    .map_err(|err| err.to_string())
 }
 
 pub fn insert_figure_snippet(
@@ -106,17 +248,15 @@ pub fn insert_figure_snippet(
     caption: &str,
     line: usize,
 ) -> Result<(String, String)> {
-    let store = state.store.read().expect("store lock poisoned");
-    let root = store.project_config.root_path.clone();
-    let asset = store
-        .assets
-        .iter()
-        .find(|item| item.id == asset_id)
-        .cloned()
-        .context("asset not found")?;
-    drop(store);
+    let root = {
+        let config = state.project_config.read().expect("project config lock poisoned");
+        config.root_path.clone()
+    };
+    let conn = state.db.lock().expect("db lock poisoned");
+    let asset = get_asset(&conn, asset_id).map_err(anyhow::Error::msg)?;
+    drop(conn);
 
-    let absolute = std::path::Path::new(&root).join(file_path);
+    let absolute = Path::new(&root).join(file_path);
     let content = std::fs::read_to_string(&absolute).unwrap_or_default();
     let label = asset
         .file_path

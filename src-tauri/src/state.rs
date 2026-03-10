@@ -1,109 +1,47 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
-use serde_json::json;
+use rusqlite::Connection;
 
-use crate::models::{
-    AgentMessage, CompileResult, FigureBriefDraft, GeneratedAsset, ProjectConfig, ProviderConfig,
-    SkillManifest,
-};
-
-pub struct AppStore {
-    pub project_config: ProjectConfig,
-    pub providers: Vec<ProviderConfig>,
-    pub skills: Vec<SkillManifest>,
-    pub briefs: Vec<FigureBriefDraft>,
-    pub assets: Vec<GeneratedAsset>,
-    pub agent_messages: Vec<AgentMessage>,
-    pub last_compile: CompileResult,
-}
+use crate::models::{CompileResult, ProjectConfig};
 
 pub struct AppState {
-    pub store: RwLock<AppStore>,
+    pub db: Mutex<Connection>,
+    pub project_config: RwLock<ProjectConfig>,
+    pub last_compile: RwLock<CompileResult>,
+    pub app_root: PathBuf,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
-        let project_config = ProjectConfig {
-            root_path: default_workspace_root(),
-            main_tex: "main.tex".into(),
-            engine: "xelatex".into(),
-            bib_tool: "biber".into(),
-            auto_compile: true,
-            forward_sync: true,
-        };
-
-        let last_compile = CompileResult {
-            status: "idle".into(),
-            pdf_path: None,
-            synctex_path: None,
-            diagnostics: vec![],
-            log_path: ".viewerleaf/logs/latest.log".into(),
-            log_output: "Compile service is idle.".into(),
-            timestamp: chrono_like_now(),
-        };
-
-        Self {
-            store: RwLock::new(AppStore {
-                project_config,
-                providers: vec![
-                    ProviderConfig {
-                        id: "openai-main".into(),
-                        vendor: "OpenAI".into(),
-                        base_url: "https://api.openai.com/v1".into(),
-                        auth_ref: "keychain://viewerleaf/openai-main".into(),
-                        default_model: "gpt-4.1".into(),
-                    },
-                    ProviderConfig {
-                        id: "anthropic-main".into(),
-                        vendor: "Anthropic".into(),
-                        base_url: "https://api.anthropic.com".into(),
-                        auth_ref: "keychain://viewerleaf/anthropic-main".into(),
-                        default_model: "claude-sonnet-4".into(),
-                    },
-                ],
-                skills: vec![
-                    SkillManifest {
-                        id: "academic-outline".into(),
-                        name: "Academic Outline".into(),
-                        version: "1.0.0".into(),
-                        stages: vec!["planning".into()],
-                        prompt_files: vec!["outline.md".into()],
-                        tool_allowlist: vec!["read_section".into(), "insert_outline_into_section".into()],
-                        enabled: true,
-                        source: "local".into(),
-                    },
-                    SkillManifest {
-                        id: "banana-figure-workflow".into(),
-                        name: "Banana Figure Workflow".into(),
-                        version: "1.0.0".into(),
-                        stages: vec!["figures".into()],
-                        prompt_files: vec!["figure-brief.md".into(), "banana-payload.md".into()],
-                        tool_allowlist: vec!["create_figure_brief".into(), "run_banana_generation".into()],
-                        enabled: true,
-                        source: "local".into(),
-                    },
-                ],
-                briefs: vec![],
-                assets: vec![],
-                agent_messages: vec![AgentMessage {
-                    id: "boot".into(),
-                    role: "system".into(),
-                    profile_id: "outline".into(),
-                    content: "ViewerLeaf runtime ready.".into(),
-                    timestamp: chrono_like_now(),
-                }],
-                last_compile,
-            }),
-        }
+pub fn default_compile_result(project_root: &Path, main_tex: &str) -> CompileResult {
+    CompileResult {
+        status: "idle".into(),
+        pdf_path: Some(
+            project_root
+                .join(main_tex.replace(".tex", ".pdf"))
+                .to_string_lossy()
+                .to_string(),
+        ),
+        synctex_path: Some(
+            project_root
+                .join(main_tex.replace(".tex", ".synctex.gz"))
+                .to_string_lossy()
+                .to_string(),
+        ),
+        diagnostics: Vec::new(),
+        log_path: project_root
+            .join(".viewerleaf/logs/latest.log")
+            .to_string_lossy()
+            .to_string(),
+        log_output: "Compile service is idle.".into(),
+        timestamp: iso_now(),
     }
 }
 
-fn default_workspace_root() -> String {
+pub fn ensure_workspace_root() -> PathBuf {
     if let Ok(current_dir) = std::env::current_dir() {
         if looks_like_dev_workspace(&current_dir) {
-            return current_dir.to_string_lossy().to_string();
+            return current_dir;
         }
     }
 
@@ -117,7 +55,25 @@ fn default_workspace_root() -> String {
         eprintln!("failed to prepare demo workspace at {}: {err}", root.display());
     }
 
-    root.to_string_lossy().to_string()
+    root
+}
+
+pub fn load_project_config(root: &Path) -> ProjectConfig {
+    let config_path = root.join(".viewerleaf").join("project.json");
+    if let Ok(raw) = fs::read_to_string(&config_path) {
+        if let Ok(config) = serde_json::from_str::<ProjectConfig>(&raw) {
+            return config;
+        }
+    }
+
+    ProjectConfig {
+        root_path: root.to_string_lossy().to_string(),
+        main_tex: "main.tex".into(),
+        engine: "xelatex".into(),
+        bib_tool: "biber".into(),
+        auto_compile: true,
+        forward_sync: true,
+    }
 }
 
 fn looks_like_dev_workspace(path: &Path) -> bool {
@@ -199,67 +155,7 @@ fn write_if_missing(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::write(path, contents)
 }
 
-pub fn default_profiles() -> Vec<serde_json::Value> {
-    vec![
-        json!({
-          "id": "outline",
-          "label": "Outline",
-          "summary": "Generate section structure and section-level claims.",
-          "stage": "planning",
-          "providerId": "openai-main",
-          "model": "gpt-4.1",
-          "skillIds": ["academic-outline"],
-          "toolAllowlist": ["read_section", "insert_outline_into_section"],
-          "outputMode": "outline"
-        }),
-        json!({
-          "id": "draft",
-          "label": "Draft",
-          "summary": "Expand notes into prose while keeping the paper voice stable.",
-          "stage": "drafting",
-          "providerId": "anthropic-main",
-          "model": "claude-sonnet-4",
-          "skillIds": ["academic-draft"],
-          "toolAllowlist": ["read_section", "apply_text_patch"],
-          "outputMode": "rewrite"
-        }),
-        json!({
-          "id": "polish",
-          "label": "Polish",
-          "summary": "Tighten academic style and compress repeated phrasing.",
-          "stage": "revision",
-          "providerId": "openrouter-lab",
-          "model": "claude-3.7-sonnet",
-          "skillIds": ["academic-polish"],
-          "toolAllowlist": ["read_section", "apply_text_patch"],
-          "outputMode": "rewrite"
-        }),
-        json!({
-          "id": "de_ai",
-          "label": "De-AI",
-          "summary": "Remove generic AI rhythms and over-explained transitions.",
-          "stage": "revision",
-          "providerId": "openai-main",
-          "model": "gpt-4.1-mini",
-          "skillIds": ["academic-de-ai"],
-          "toolAllowlist": ["read_section", "apply_text_patch"],
-          "outputMode": "rewrite"
-        }),
-        json!({
-          "id": "review",
-          "label": "Review",
-          "summary": "Review the argument structure like a hard reviewer.",
-          "stage": "submission",
-          "providerId": "anthropic-main",
-          "model": "claude-sonnet-4",
-          "skillIds": ["academic-review"],
-          "toolAllowlist": ["read_section", "search_project"],
-          "outputMode": "review"
-        }),
-    ]
-}
-
-fn chrono_like_now() -> String {
+fn iso_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let secs = SystemTime::now()

@@ -19,6 +19,9 @@ import type {
   FigureBriefDraft,
   GeneratedAsset,
   ProjectFile,
+  ProviderConfig,
+  SkillManifest,
+  TestResult,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -36,6 +39,8 @@ function App() {
   const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(null);
   const [selectedBrief, setSelectedBrief] = useState<FigureBriefDraft | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamText, setStreamText] = useState("");
 
   const activeFile = useMemo<ProjectFile | null>(() => {
     if (!snapshot) {
@@ -51,14 +56,43 @@ function App() {
 
   const deferredActiveFile = useDeferredValue(activeFile);
 
+  const refreshWorkspace = useEffectEvent(async (options?: {
+    activeFilePath?: string;
+    openTabs?: string[];
+  }) => {
+    const nextSnapshot = await desktop.openProject();
+    const requestedActiveFile = options?.activeFilePath;
+    const nextActiveFile =
+      requestedActiveFile && nextSnapshot.files.some((file) => file.path === requestedActiveFile)
+        ? requestedActiveFile
+        : nextSnapshot.activeFile;
+    const nextTabsSource = options?.openTabs ?? openTabs;
+    const nextTabs = Array.from(
+      new Set(
+        [nextActiveFile, ...nextTabsSource].filter((path) =>
+          nextSnapshot.files.some((file) => file.path === path),
+        ),
+      ),
+    );
+
+    setSnapshot(nextSnapshot);
+    setOpenTabs(nextTabs);
+    setActiveFilePath(nextActiveFile);
+    setSelectedBrief((current) =>
+      current ? nextSnapshot.figureBriefs.find((item) => item.id === current.id) ?? null : null,
+    );
+    setSelectedAsset((current) =>
+      current ? nextSnapshot.assets.find((item) => item.id === current.id) ?? null : null,
+    );
+
+    return nextSnapshot;
+  });
+
   useEffect(() => {
     void (async () => {
       try {
-        const nextSnapshot = await desktop.openProject();
+        const nextSnapshot = await refreshWorkspace();
         const nextMessages = await desktop.getAgentMessages();
-        setSnapshot(nextSnapshot);
-        setOpenTabs([nextSnapshot.activeFile, nextSnapshot.projectConfig.mainTex]);
-        setActiveFilePath(nextSnapshot.activeFile);
         setMessages(nextMessages);
 
         if (nextSnapshot.projectConfig.autoCompile && nextSnapshot.compileResult.status === "idle") {
@@ -66,9 +100,9 @@ function App() {
           setSnapshot((current) =>
             current
               ? {
-                ...current,
-                compileResult,
-              }
+                  ...current,
+                  compileResult,
+                }
               : current,
           );
         }
@@ -77,7 +111,7 @@ function App() {
         setBootstrapError(message);
       }
     })();
-  }, []);
+  }, [refreshWorkspace]);
 
   const runForwardSync = useEffectEvent(async (filePath: string, line: number) => {
     if (!snapshot?.projectConfig.forwardSync || snapshot.compileResult.status !== "success") {
@@ -99,7 +133,7 @@ function App() {
       void runForwardSync(deferredActiveFile.path, cursorLine);
     }, 420);
     return () => window.clearTimeout(timer);
-  }, [cursorLine, deferredActiveFile, snapshot?.compileResult.status]);
+  }, [cursorLine, deferredActiveFile, runForwardSync, snapshot?.compileResult.status]);
 
   async function saveAndCompile(filePath: string, content: string) {
     await desktop.saveFile(filePath, content);
@@ -109,16 +143,16 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-          ...current,
-          compileResult: {
-            ...current.compileResult,
-            status: "running",
-            logOutput: "Compile queued…",
-            diagnostics: current.compileResult.diagnostics,
-            logPath: current.compileResult.logPath,
-            timestamp: new Date().toISOString(),
-          },
-        }
+            ...current,
+            compileResult: {
+              ...current.compileResult,
+              status: "running",
+              logOutput: "Compile queued…",
+              diagnostics: current.compileResult.diagnostics,
+              logPath: current.compileResult.logPath,
+              timestamp: new Date().toISOString(),
+            },
+          }
         : current,
     );
 
@@ -126,9 +160,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-          ...current,
-          compileResult,
-        }
+            ...current,
+            compileResult,
+          }
         : current,
     );
   }
@@ -161,13 +195,57 @@ function App() {
   }
 
   async function handleRunAgent() {
-    if (!activeFile) {
+    if (!activeFile || isStreaming) {
       return;
     }
-    const result = await desktop.runAgent(activeProfileId, activeFile.path, selectedText);
-    const nextMessages = await desktop.getAgentMessages();
-    setMessages(nextMessages);
-    setPendingPatch(result.suggestedPatch ?? null);
+
+    setDrawerTab("ai");
+    setIsStreaming(true);
+    setStreamText("");
+    setPendingPatch(null);
+
+    const unlisten = await desktop.onAgentStream((chunk) => {
+      switch (chunk.type) {
+        case "text_delta":
+          setStreamText((current) => current + chunk.content);
+          break;
+        case "tool_call_start":
+          setStreamText((current) => `${current}\n[Tool: ${chunk.toolId}]\n`);
+          break;
+        case "tool_call_result":
+          setStreamText((current) => `${current}\n[Result: ${chunk.output.slice(0, 240)}]\n`);
+          break;
+        case "patch":
+          setPendingPatch({
+            filePath: chunk.filePath,
+            content: chunk.newContent,
+            summary: `Patch from agent for ${chunk.filePath}`,
+          });
+          break;
+        case "error":
+          setStreamText((current) => `${current}\n[Error: ${chunk.message}]\n`);
+          setIsStreaming(false);
+          break;
+        case "done":
+          setIsStreaming(false);
+          break;
+      }
+    });
+
+    try {
+      const result = await desktop.runAgent(activeProfileId, activeFile.path, selectedText);
+      const allMessages = await desktop.getAgentMessages();
+      const nextMessages =
+        allMessages.length > 0 ? allMessages : await desktop.getAgentMessages(result.sessionId);
+      setMessages(nextMessages);
+      if (result.suggestedPatch) {
+        setPendingPatch(result.suggestedPatch);
+      }
+      setStreamText("");
+    } finally {
+      unlisten();
+      setIsStreaming(false);
+    }
   }
 
   async function handleApplyPatch() {
@@ -187,9 +265,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-          ...current,
-          figureBriefs: [brief, ...current.figureBriefs.filter((item) => item.id !== brief.id)],
-        }
+            ...current,
+            figureBriefs: [brief, ...current.figureBriefs.filter((item) => item.id !== brief.id)],
+          }
         : current,
     );
     setSelectedBrief(brief);
@@ -205,9 +283,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-          ...current,
-          figureBriefs: current.figureBriefs.map((item) => (item.id === updated.id ? updated : item)),
-        }
+            ...current,
+            figureBriefs: current.figureBriefs.map((item) => (item.id === updated.id ? updated : item)),
+          }
         : current,
     );
   }
@@ -222,9 +300,9 @@ function App() {
     setSnapshot((current) =>
       current
         ? {
-          ...current,
-          assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
-        }
+            ...current,
+            assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+          }
         : current,
     );
   }
@@ -256,6 +334,56 @@ function App() {
     }
   }
 
+  async function handleAddProvider(provider: ProviderConfig) {
+    await desktop.addProvider(provider);
+    const providers = await desktop.listProviders();
+    setSnapshot((current) => (current ? { ...current, providers } : current));
+  }
+
+  async function handleDeleteProvider(providerId: string) {
+    await desktop.deleteProvider(providerId);
+    const providers = await desktop.listProviders();
+    setSnapshot((current) => (current ? { ...current, providers } : current));
+  }
+
+  function handleTestProvider(providerId: string): Promise<TestResult> {
+    return desktop.testProvider(providerId);
+  }
+
+  async function handleToggleSkill(skill: SkillManifest) {
+    const enabled = !(skill.isEnabled ?? skill.enabled ?? false);
+    await desktop.enableSkill(skill.id, enabled);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            skills: current.skills.map((item) =>
+              item.id === skill.id ? { ...item, enabled, isEnabled: enabled } : item,
+            ),
+          }
+        : current,
+    );
+  }
+
+  async function handleCreateFile(parentDir: string, fileName: string) {
+    const targetPath = parentDir ? `${parentDir}/${fileName}` : fileName;
+    await desktop.createFile(targetPath, "");
+    await refreshWorkspace({ activeFilePath: targetPath, openTabs: [...openTabs, targetPath] });
+  }
+
+  async function handleDeleteFile(path: string) {
+    const nextOpenTabs = openTabs.filter((tab) => tab !== path);
+    await desktop.deleteFile(path);
+    await refreshWorkspace({ activeFilePath: activeFilePath === path ? undefined : activeFilePath, openTabs: nextOpenTabs });
+  }
+
+  async function handleRenameFile(oldPath: string, newPath: string) {
+    const nextOpenTabs = openTabs.map((tab) => (tab === oldPath ? newPath : tab));
+    const nextActive = activeFilePath === oldPath ? newPath : activeFilePath;
+    await desktop.renameFile(oldPath, newPath);
+    await refreshWorkspace({ activeFilePath: nextActive, openTabs: nextOpenTabs });
+  }
+
   if (bootstrapError) {
     return <div className="app-shell loading-shell">ViewerLeaf failed to start: {bootstrapError}</div>;
   }
@@ -275,16 +403,20 @@ function App() {
           <span className="topbar-metric">
             编译状态
             <strong>
-              {snapshot.compileResult.status === "success" ? "成功" :
-                snapshot.compileResult.status === "failed" ? "失败" :
-                  snapshot.compileResult.status === "running" ? "正在编译" : "空闲"}
+              {snapshot.compileResult.status === "success"
+                ? "成功"
+                : snapshot.compileResult.status === "failed"
+                  ? "失败"
+                  : snapshot.compileResult.status === "running"
+                    ? "正在编译"
+                    : "空闲"}
             </strong>
           </span>
         </div>
         <div className="topbar-right">
           <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
-          <button className="btn-primary hover-spring" onClick={handleRunAgent} type="button">
-            执行 {activeProfile?.label ?? "当前配置"}
+          <button className="btn-primary hover-spring" onClick={handleRunAgent} type="button" disabled={isStreaming}>
+            {isStreaming ? "执行中..." : `执行 ${activeProfile?.label ?? "当前配置"}`}
           </button>
         </div>
       </header>
@@ -358,11 +490,23 @@ function App() {
           onRunFigureSkill={handleRunFigureSkill}
           onGenerateFigure={handleGenerateFigure}
           onInsertFigure={handleInsertFigure}
-          onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find(b => b.id === briefId) ?? null)}
-          onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find(a => a.id === assetId) ?? null)}
+          onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find((brief) => brief.id === briefId) ?? null)}
+          onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
           providers={snapshot.providers}
+          onAddProvider={handleAddProvider}
+          onDeleteProvider={handleDeleteProvider}
+          onTestProvider={handleTestProvider}
+          streamText={streamText}
+          isStreaming={isStreaming}
           explorerNode={
-            <ProjectTree nodes={snapshot.tree} activeFile={activeFilePath} onOpenFile={handleOpenFile} />
+            <ProjectTree
+              nodes={snapshot.tree}
+              activeFile={activeFilePath}
+              onOpenFile={handleOpenFile}
+              onCreateFile={handleCreateFile}
+              onDeleteFile={handleDeleteFile}
+              onRenameFile={handleRenameFile}
+            />
           }
         />
 
@@ -382,39 +526,56 @@ function App() {
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "24px" }}>
                 {snapshot.skills.map((skill) => {
+                  const enabled = skill.isEnabled ?? skill.enabled ?? false;
                   const getAppIcon = (name: string) => name.substring(0, 2).toUpperCase();
 
                   return (
-                    <div key={skill.id} className={`hover-spring ${skill.enabled ? "enabled" : ""}`} style={{
-                      background: "var(--bg-surface)",
-                      border: "1px solid var(--border-light)",
-                      borderRadius: "var(--radius-xl)",
-                      padding: "24px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "16px",
-                      cursor: "pointer",
-                      boxShadow: "var(--shadow-sm)"
-                    }}>
+                    <div
+                      key={skill.id}
+                      className={`hover-spring ${enabled ? "enabled" : ""}`}
+                      style={{
+                        background: "var(--bg-surface)",
+                        border: "1px solid var(--border-light)",
+                        borderRadius: "var(--radius-xl)",
+                        padding: "24px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "16px",
+                        cursor: "pointer",
+                        boxShadow: "var(--shadow-sm)",
+                      }}
+                    >
                       <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                        <div style={{
-                          width: "64px", height: "64px", borderRadius: "18px",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: "28px", fontWeight: 600,
-                          background: skill.enabled ? "linear-gradient(135deg, #e0f2fe, #bae6fd)" : "linear-gradient(135deg, #f0f0f0, #e0e0e0)",
-                          color: skill.enabled ? "#0284c7" : "var(--text-tertiary)",
-                          boxShadow: "inset 0 2px 4px rgba(255,255,255,0.5), 0 4px 12px rgba(0,0,0,0.05)"
-                        }}>
+                        <div
+                          style={{
+                            width: "64px",
+                            height: "64px",
+                            borderRadius: "18px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "28px",
+                            fontWeight: 600,
+                            background: enabled ? "linear-gradient(135deg, #e0f2fe, #bae6fd)" : "linear-gradient(135deg, #f0f0f0, #e0e0e0)",
+                            color: enabled ? "#0284c7" : "var(--text-tertiary)",
+                            boxShadow: "inset 0 2px 4px rgba(255,255,255,0.5), 0 4px 12px rgba(0,0,0,0.05)",
+                          }}
+                        >
                           {getAppIcon(skill.name)}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <h3 style={{ margin: "0 0 4px 0", fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.name}</h3>
                           <div style={{ fontSize: "12px", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{
-                              display: "inline-block", width: "8px", height: "8px", borderRadius: "50%",
-                              background: skill.enabled ? "var(--accent-primary)" : "var(--text-tertiary)"
-                            }}></span>
-                            {skill.enabled ? "已启用" : "未启用"}
+                            <span
+                              style={{
+                                display: "inline-block",
+                                width: "8px",
+                                height: "8px",
+                                borderRadius: "50%",
+                                background: enabled ? "var(--accent-primary)" : "var(--text-tertiary)",
+                              }}
+                            ></span>
+                            {enabled ? "已启用" : "未启用"}
                           </div>
                         </div>
                       </div>
@@ -422,10 +583,17 @@ function App() {
                         这个技能可以通过 {skill.source} 源获取，并在系统流水线中使用。
                       </div>
                       <div style={{ display: "flex", gap: "8px", marginTop: "auto" }}>
-                        <button className={skill.enabled ? "btn-secondary hover-spring" : "btn-primary hover-spring"} style={{ flex: 1 }}>
-                          {skill.enabled ? "停用" : "启用"}
+                        <button
+                          className={enabled ? "btn-secondary hover-spring" : "btn-primary hover-spring"}
+                          style={{ flex: 1 }}
+                          type="button"
+                          onClick={() => void handleToggleSkill(skill)}
+                        >
+                          {enabled ? "停用" : "启用"}
                         </button>
-                        <button className="btn-secondary hover-spring" style={{ flex: 1 }}>配置</button>
+                        <button className="btn-secondary hover-spring" style={{ flex: 1 }} type="button">
+                          配置
+                        </button>
                       </div>
                     </div>
                   );
@@ -454,10 +622,14 @@ function App() {
                     type="button"
                   >
                     <span style={{ marginRight: 8 }}>{tab.split("/").at(-1)}</span>
-                    <span className="icon-btn" style={{ width: 16, height: 16 }} onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenTabs(current => current.filter(t => t !== tab));
-                    }}>
+                    <span
+                      className="icon-btn"
+                      style={{ width: 16, height: 16 }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setOpenTabs((current) => current.filter((item) => item !== tab));
+                      }}
+                    >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </span>
                   </button>
@@ -473,6 +645,16 @@ function App() {
                     setSelectedText(selection);
                   }}
                   onSelectTab={handleOpenFile}
+                  onSave={(content) => {
+                    if (!deferredActiveFile) {
+                      return;
+                    }
+                    replaceFileContent(deferredActiveFile.path, content);
+                    void saveAndCompile(deferredActiveFile.path, content);
+                  }}
+                  onRunAgent={() => {
+                    void handleRunAgent();
+                  }}
                 />
               </div>
             </div>

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use regex::Regex;
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -41,11 +42,11 @@ fn parse_diagnostics(output: &str) -> Vec<Diagnostic> {
 }
 
 pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResult> {
-    let store = state.store.read().expect("store lock poisoned");
-    let root_path = store.project_config.root_path.clone();
-    let main_tex = store.project_config.main_tex.clone();
-    let engine = store.project_config.engine.clone();
-    drop(store);
+    let config = state.project_config.read().expect("project config lock poisoned");
+    let root_path = config.root_path.clone();
+    let main_tex = config.main_tex.clone();
+    let engine = config.engine.clone();
+    drop(config);
 
     let root = Path::new(&root_path);
     let engine_flag = match engine.as_str() {
@@ -74,8 +75,11 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
                 format!("failed to run latexmk for {file_path}: {err}"),
             );
 
-            let mut store = state.store.write().expect("store lock poisoned");
-            store.last_compile = result.clone();
+            let mut last_compile = state
+                .last_compile
+                .write()
+                .expect("compile result lock poisoned");
+            *last_compile = result.clone();
             return Ok(result);
         }
     };
@@ -86,6 +90,12 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
     let diagnostics = parse_diagnostics(&log_output);
     let pdf_path = root.join(main_tex.replace(".tex", ".pdf"));
     let synctex_path = root.join(main_tex.replace(".tex", ".synctex.gz"));
+    let log_path = root.join(".viewerleaf/logs/latest.log");
+
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&log_path, &log_output);
 
     let result = CompileResult {
         status: if output.status.success() {
@@ -96,16 +106,17 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
         pdf_path: Some(pdf_path.to_string_lossy().to_string()),
         synctex_path: Some(synctex_path.to_string_lossy().to_string()),
         diagnostics,
-        log_path: root
-            .join(".viewerleaf/logs/latest.log")
-            .to_string_lossy()
-            .to_string(),
+        log_path: log_path.to_string_lossy().to_string(),
         log_output,
         timestamp: format!("{:?}", std::time::SystemTime::now()),
     };
 
-    let mut store = state.store.write().expect("store lock poisoned");
-    store.last_compile = result.clone();
+    let mut last_compile = state
+        .last_compile
+        .write()
+        .expect("compile result lock poisoned");
+    *last_compile = result.clone();
+
     Ok(result)
 }
 

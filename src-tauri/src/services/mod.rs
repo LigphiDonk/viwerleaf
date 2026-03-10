@@ -3,6 +3,7 @@ use std::path::Path;
 pub mod agent;
 pub mod compile;
 pub mod figure;
+pub mod profile;
 pub mod project;
 pub mod provider;
 pub mod skill;

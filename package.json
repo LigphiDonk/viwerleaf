@@ -13,8 +13,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.18.7",
+    "@codemirror/commands": "^6.9.1",
     "@codemirror/language": "^6.11.3",
     "@codemirror/legacy-modes": "^6.5.2",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/view": "^6.38.6",
     "@tauri-apps/api": "^2.8.0",
     "@uiw/react-codemirror": "^4.25.2",
     "clsx": "^2.1.1",

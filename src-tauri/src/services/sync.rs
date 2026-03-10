@@ -8,10 +8,10 @@ use crate::services::enriched_path;
 use crate::state::AppState;
 
 pub fn forward_search(state: &AppState, file_path: &str, line: usize) -> Result<SyncLocation> {
-    let store = state.store.read().expect("store lock poisoned");
-    let root_path = store.project_config.root_path.clone();
-    let main_tex = store.project_config.main_tex.clone();
-    drop(store);
+    let config = state.project_config.read().expect("project config lock poisoned");
+    let root_path = config.root_path.clone();
+    let main_tex = config.main_tex.clone();
+    drop(config);
 
     let root = Path::new(&root_path);
     let pdf_path = root.join(main_tex.replace(".tex", ".pdf"));
@@ -47,10 +47,10 @@ pub fn forward_search(state: &AppState, file_path: &str, line: usize) -> Result<
 }
 
 pub fn reverse_search(state: &AppState, page: usize) -> Result<SyncLocation> {
-    let store = state.store.read().expect("store lock poisoned");
-    let root_path = store.project_config.root_path.clone();
-    let main_tex = store.project_config.main_tex.clone();
-    drop(store);
+    let config = state.project_config.read().expect("project config lock poisoned");
+    let root_path = config.root_path.clone();
+    let main_tex = config.main_tex.clone();
+    drop(config);
 
     let root = Path::new(&root_path);
     let pdf_path = root.join(main_tex.replace(".tex", ".pdf"));
