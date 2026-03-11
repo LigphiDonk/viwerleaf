@@ -1,12 +1,47 @@
 use anyhow::Result;
 use regex::Regex;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::models::{CompileResult, Diagnostic};
+use crate::models::{CompileEnvironmentStatus, CompileResult, Diagnostic};
 use crate::services::enriched_path;
 use crate::state::AppState;
+
+fn command_available(command: &str, path_env: &str) -> bool {
+    std::env::split_paths(OsStr::new(path_env)).any(|directory| directory.join(command).is_file())
+}
+
+pub fn detect_compile_environment() -> CompileEnvironmentStatus {
+    let path_env = enriched_path();
+    let latexmk_available = command_available("latexmk", &path_env);
+    let synctex_available = command_available("synctex", &path_env);
+    let available_engines = ["pdflatex", "xelatex", "lualatex"]
+        .into_iter()
+        .filter(|engine| command_available(engine, &path_env))
+        .map(|engine| engine.to_string())
+        .collect::<Vec<_>>();
+
+    let mut missing_tools = Vec::new();
+    if !latexmk_available {
+        missing_tools.push("latexmk".to_string());
+    }
+    if !synctex_available {
+        missing_tools.push("synctex".to_string());
+    }
+    if available_engines.is_empty() {
+        missing_tools.push("TeX engine".to_string());
+    }
+
+    CompileEnvironmentStatus {
+        ready: latexmk_available && synctex_available && !available_engines.is_empty(),
+        latexmk_available,
+        synctex_available,
+        available_engines,
+        missing_tools,
+    }
+}
 
 fn parse_diagnostics(output: &str) -> Vec<Diagnostic> {
     let file_line = Regex::new(r"(?m)^(\./)?(?P<file>[^:\n]+):(?P<line>\d+): (?P<message>.+)$")

@@ -73,6 +73,11 @@ pub fn compile_project(
 }
 
 #[tauri::command]
+pub fn get_compile_environment() -> Result<crate::models::CompileEnvironmentStatus, String> {
+    Ok(compile::detect_compile_environment())
+}
+
+#[tauri::command]
 pub fn forward_search(
     state: State<'_, AppState>,
     file_path: String,
@@ -379,6 +384,12 @@ pub fn delete_file(state: State<'_, AppState>, path: String) -> Result<(), Strin
         fs::remove_file(&full_path).map_err(|err| err.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn read_pdf_binary(path: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("failed to read PDF: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]

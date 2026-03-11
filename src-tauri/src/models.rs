@@ -119,6 +119,16 @@ pub struct CompileResult {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CompileEnvironmentStatus {
+    pub ready: bool,
+    pub latexmk_available: bool,
+    pub synctex_available: bool,
+    pub available_engines: Vec<String>,
+    pub missing_tools: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub file_path: String,
     pub line: usize,

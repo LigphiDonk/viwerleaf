@@ -70,6 +70,7 @@ pub fn run() {
             commands::save_file,
             commands::update_project_config,
             commands::compile_project,
+            commands::get_compile_environment,
             commands::forward_search,
             commands::reverse_search,
             commands::run_agent,
@@ -94,7 +95,8 @@ pub fn run() {
             commands::create_file,
             commands::create_folder,
             commands::delete_file,
-            commands::rename_file
+            commands::rename_file,
+            commands::read_pdf_binary
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");

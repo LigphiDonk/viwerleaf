@@ -6,6 +6,7 @@ import type {
   AgentProfileId,
   AgentRunResult,
   AssetResource,
+  CompileEnvironmentStatus,
   FigureBriefDraft,
   GeneratedAsset,
   ProjectConfig,
@@ -100,6 +101,11 @@ export const desktop = {
   },
   compileProject(filePath: string) {
     return runOrMock("compile_project", { filePath }, () => mockRuntime.compileProject(filePath));
+  },
+  getCompileEnvironment() {
+    return runOrMock<CompileEnvironmentStatus>("get_compile_environment", {}, () =>
+      mockRuntime.getCompileEnvironment(),
+    );
   },
   forwardSearch(filePath: string, line: number) {
     return runOrMock<SyncLocation>("forward_search", { filePath, line }, () =>
@@ -201,6 +207,14 @@ export const desktop = {
     return runOrMock("rename_file", { oldPath, newPath }, () =>
       mockRuntime.renameFile?.(oldPath, newPath) ?? Promise.resolve(),
     );
+  },
+  readPdfBinary(absolutePath: string): Promise<Uint8Array | null> {
+    if (!isTauriRuntime() || !absolutePath) {
+      return Promise.resolve(null);
+    }
+    return invoke<ArrayBuffer>("read_pdf_binary", { path: absolutePath })
+      .then((buffer) => new Uint8Array(buffer))
+      .catch(() => null);
   },
   onAgentStream(callback: (chunk: StreamChunk) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) {

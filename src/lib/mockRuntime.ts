@@ -6,6 +6,7 @@ import type {
   AgentProfileId,
   AgentRunResult,
   AssetResource,
+  CompileEnvironmentStatus,
   CompileResult,
   Diagnostic,
   FigureBriefDraft,
@@ -740,6 +741,16 @@ export const mockRuntime = {
     };
 
     return structuredClone(lastCompile);
+  },
+
+  async getCompileEnvironment(): Promise<CompileEnvironmentStatus> {
+    return {
+      ready: true,
+      latexmkAvailable: true,
+      synctexAvailable: true,
+      availableEngines: ["pdflatex", "xelatex", "lualatex"],
+      missingTools: [],
+    };
   },
 
   async forwardSearch(filePath: string, line: number): Promise<SyncLocation> {

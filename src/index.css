@@ -166,6 +166,35 @@ button {
   font-weight: 500;
 }
 
+.compile-launch-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(24, 134, 73, 0.18);
+  background: rgba(37, 180, 96, 0.12);
+  color: #17884b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.compile-launch-btn:hover {
+  background: rgba(37, 180, 96, 0.18);
+  color: #0f6b3a;
+}
+
+.compile-launch-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.compile-launch-btn svg {
+  width: 15px;
+  height: 15px;
+  margin-left: 1px;
+}
+
 /* Main Workspace Horizontal Layout */
 .workspace-container {
   display: flex;
@@ -230,6 +259,20 @@ button {
   width: 3px;
   background: var(--accent-primary);
   border-radius: 0 2px 2px 0;
+}
+
+.activity-icon-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.activity-icon-dot-warning {
+  background: #d9822b;
+  box-shadow: 0 0 0 2px var(--bg-activity-bar);
 }
 
 /* Primary Sidebar */
@@ -412,6 +455,153 @@ button {
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.latex-status-card {
+  background:
+    radial-gradient(circle at top right, rgba(37, 180, 96, 0.1), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.92));
+}
+
+.latex-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.latex-tool-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.latex-tool-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.latex-tool-pill.ready {
+  background: rgba(37, 180, 96, 0.12);
+  color: #11693a;
+  border-color: rgba(37, 180, 96, 0.18);
+}
+
+.latex-tool-pill.missing {
+  background: rgba(191, 104, 66, 0.1);
+  color: #9a4b27;
+  border-color: rgba(191, 104, 66, 0.16);
+}
+
+.latex-setup-card {
+  background:
+    linear-gradient(180deg, rgba(255, 247, 238, 0.94), rgba(255, 252, 248, 0.98));
+}
+
+.latex-guide-list {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.latex-guide-list li + li {
+  margin-top: 6px;
+}
+
+.latex-code-block {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: #1f2622;
+  color: #d5f4df;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.latex-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0 2px;
+}
+
+.latex-toggle-row input {
+  margin: 0;
+  accent-color: var(--accent-primary);
+}
+
+.latex-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.latex-engine-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.latex-engine-option {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-app);
+  padding: 12px 14px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+  transition: all var(--transition-fast);
+}
+
+.latex-engine-option:hover:not(:disabled) {
+  border-color: rgba(37, 180, 96, 0.28);
+  transform: translateY(-1px);
+}
+
+.latex-engine-option.is-active {
+  border-color: rgba(37, 180, 96, 0.32);
+  background: rgba(37, 180, 96, 0.08);
+  box-shadow: 0 0 0 1px rgba(37, 180, 96, 0.12);
+}
+
+.latex-engine-option.is-unavailable {
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+}
+
+.latex-engine-option:disabled {
+  cursor: not-allowed;
+}
+
+.latex-warning-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(217, 130, 43, 0.1);
+  color: #945117;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.latex-inline-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 /* Editor Area */

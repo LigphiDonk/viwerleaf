@@ -13,7 +13,7 @@ import { OutlineTree } from "./components/OutlineTree";
 import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectTree } from "./components/ProjectTree";
 import { Sidebar } from "./components/Sidebar";
-import { desktop } from "./lib/desktop";
+import { desktop, isTauriRuntime } from "./lib/desktop";
 import { resolvePdfSource } from "./lib/pdf-source";
 import {
   buildProjectOutline,
@@ -26,9 +26,11 @@ import type {
   AgentMessage,
   AgentProfileId,
   AssetResource,
+  CompileEnvironmentStatus,
   DrawerTab,
   FigureBriefDraft,
   GeneratedAsset,
+  LatexEngine,
   ProjectFile,
   ProjectNode,
   ProviderConfig,
@@ -99,6 +101,10 @@ function App() {
   const [activeFilePath, setActiveFilePath] = useState("");
   const [highlightedPage, setHighlightedPage] = useState(1);
   const [syncHighlights, setSyncHighlights] = useState<SyncHighlight[]>([]);
+  const [compilePreviewLoadError, setCompilePreviewLoadError] = useState("");
+  const [compilePdfData, setCompilePdfData] = useState<Uint8Array | null>(null);
+  const [compileEnvironment, setCompileEnvironment] = useState<CompileEnvironmentStatus | null>(null);
+  const [isCheckingCompileEnvironment, setIsCheckingCompileEnvironment] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
   const [workspacePaneMode, setWorkspacePaneMode] = useState<WorkspacePaneMode>("files");
   const [cursorLine, setCursorLine] = useState(1);
@@ -161,11 +167,6 @@ function App() {
     () => toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", snapshot?.compileResult.pdfPath),
     [snapshot?.compileResult.pdfPath, snapshot?.projectConfig.rootPath],
   );
-  const compilePreviewUrl = useMemo(() => {
-    const pdfPath = snapshot?.compileResult.pdfPath;
-    if (!pdfPath) return "";
-    return desktop.resolveResourceUrl(pdfPath);
-  }, [snapshot?.compileResult.pdfPath]);
   const compilePreviewAsset = compilePreviewPath ? assetCache[compilePreviewPath] : undefined;
   const previewAsset = previewSelection.kind === "asset" ? assetCache[previewSelection.path] : undefined;
   const editorImageAsset = editorImagePath ? assetCache[editorImagePath] : undefined;
@@ -284,6 +285,8 @@ function App() {
     setActiveFilePath(nextActivePath);
     setHighlightedPage(1);
     setSyncHighlights([]);
+    setCompileEnvironment(null);
+    setIsCheckingCompileEnvironment(false);
     setEditorImagePath(nextEditorImagePath);
     setPreviewSelection(nextPreview);
     if (rootChanged) {
@@ -380,12 +383,34 @@ function App() {
   }, [assetCache, editorImagePath]);
 
   useEffect(() => {
-    if (previewSelection.kind !== "compile" || !compilePreviewPath || assetCache[compilePreviewPath]) {
+    if (
+      previewSelection.kind !== "compile" ||
+      compilePdfData !== null ||
+      !snapshot?.compileResult.pdfPath ||
+      snapshot.compileResult.status !== "success"
+    ) {
       return;
     }
-    void loadAsset(compilePreviewPath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAsset is useEffectEvent
-  }, [assetCache, compilePreviewPath, previewSelection.kind]);
+
+    let cancelled = false;
+
+    void (async () => {
+      const data = await desktop.readPdfBinary(snapshot.compileResult.pdfPath!);
+      if (cancelled) return;
+      if (data && data.length > 0) {
+        setCompilePdfData(data);
+        setCompilePreviewLoadError("");
+      } else if (isTauriRuntime()) {
+        setCompilePreviewLoadError(
+          "编译已经完成，但预览区暂时没有读到新的 PDF 文件。通常是编译输出刚被替换，或当前 PDF 仍被占用。",
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [compilePdfData, previewSelection.kind, snapshot?.compileResult.pdfPath, snapshot?.compileResult.status, snapshot?.compileResult.timestamp]);
 
   useEffect(() => {
     if (!editorImagePath || !editorImageAsset) {
@@ -470,6 +495,35 @@ function App() {
     };
   }, [openFiles, snapshot?.projectConfig.mainTex, snapshot?.projectConfig.rootPath]);
 
+  const refreshCompileEnvironment = useEffectEvent(async () => {
+    if (!snapshot?.projectConfig.rootPath) {
+      setCompileEnvironment(null);
+      return null;
+    }
+
+    setIsCheckingCompileEnvironment(true);
+    try {
+      const nextEnvironment = await desktop.getCompileEnvironment();
+      setCompileEnvironment(nextEnvironment);
+      return nextEnvironment;
+    } finally {
+      setIsCheckingCompileEnvironment(false);
+    }
+  });
+
+  useEffect(() => {
+    if (!hasProject) {
+      setCompileEnvironment(null);
+      setIsCheckingCompileEnvironment(false);
+      return;
+    }
+
+    if (drawerTab === "latex") {
+      void refreshCompileEnvironment();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCompileEnvironment is useEffectEvent
+  }, [drawerTab, hasProject, snapshot?.projectConfig.rootPath]);
+
   const performForwardSync = useEffectEvent(async (filePath: string, line: number) => {
     if (snapshot?.compileResult.status !== "success") {
       return;
@@ -524,15 +578,18 @@ function App() {
     const compileResult = await desktop.compileProject(filePath);
     const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
 
-    if (previousCompilePath || nextCompilePath) {
+    if (compileResult.pdfPath) {
+      const data = await desktop.readPdfBinary(compileResult.pdfPath);
+      if (data && data.length > 0) {
+        setCompilePdfData(data);
+        setCompilePreviewLoadError("");
+      }
+    }
+
+    if (previousCompilePath && previousCompilePath !== nextCompilePath) {
       setAssetCache((current) => {
         const next = { ...current };
-        if (previousCompilePath) {
-          delete next[previousCompilePath];
-        }
-        if (nextCompilePath) {
-          delete next[nextCompilePath];
-        }
+        delete next[previousCompilePath];
         return next;
       });
     }
@@ -652,28 +709,64 @@ function App() {
     await runCompile(activeFilePath || snapshot.projectConfig.mainTex);
   });
 
+  const handleInteractiveCompile = useEffectEvent(async () => {
+    if (!snapshot) {
+      return;
+    }
+
+    try {
+      const environment = await refreshCompileEnvironment();
+      const selectedEngine = snapshot.projectConfig.engine as LatexEngine;
+      const selectedEngineAvailable = environment?.availableEngines.includes(selectedEngine) ?? false;
+
+      if (!environment?.ready || !selectedEngineAvailable) {
+        setDrawerTab("latex");
+        return;
+      }
+    } catch (error) {
+      console.warn("failed to detect compile environment", error);
+      setDrawerTab("latex");
+      return;
+    }
+
+    await handleManualCompile();
+  });
+
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== "b") {
         return;
       }
       event.preventDefault();
-      void handleManualCompile();
+      void handleInteractiveCompile();
     }
 
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleManualCompile is useEffectEvent
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleInteractiveCompile is useEffectEvent
   }, []);
 
-  const toggleAutoCompile = useEffectEvent(async () => {
+  const handleSetAutoCompile = useEffectEvent(async (enabled: boolean) => {
     if (!snapshot) {
       return;
     }
 
     const projectConfig = await desktop.updateProjectConfig({
       ...snapshot.projectConfig,
-      autoCompile: !snapshot.projectConfig.autoCompile,
+      autoCompile: enabled,
+    });
+
+    setSnapshot((current) => (current ? { ...current, projectConfig } : current));
+  });
+
+  const handleSetCompileEngine = useEffectEvent(async (engine: LatexEngine) => {
+    if (!snapshot || snapshot.projectConfig.engine === engine) {
+      return;
+    }
+
+    const projectConfig = await desktop.updateProjectConfig({
+      ...snapshot.projectConfig,
+      engine,
     });
 
     setSnapshot((current) => (current ? { ...current, projectConfig } : current));
@@ -684,7 +777,7 @@ function App() {
   });
 
   const handleEditorCompile = useEffectEvent(() => {
-    void handleManualCompile();
+    void handleInteractiveCompile();
   });
 
   const handleEditorForwardSync = useEffectEvent(() => {
@@ -1196,7 +1289,7 @@ function App() {
           kind: "pdf",
           title: node.name,
           fileData,
-          fileUrl,
+          fileUrl: undefined,
           isLoading: false,
           highlightedPage,
           highlights: undefined,
@@ -1233,17 +1326,29 @@ function App() {
       };
     }
     const compileFileData = compilePreviewAsset?.data instanceof Uint8Array ? compilePreviewAsset.data : undefined;
-    const compileFileUrl = compilePreviewAsset?.resourceUrl ?? compilePreviewUrl;
-    const hasCompileSource = Boolean(
-      resolvePdfSource(compileFileData ?? snapshot.compileResult.pdfData, compileFileUrl),
-    );
+    const inlineCompileData =
+      compilePdfData ??
+      compileFileData ??
+      (snapshot.compileResult.pdfData instanceof Uint8Array ? snapshot.compileResult.pdfData : undefined);
+    const hasCompileSource = Boolean(resolvePdfSource(inlineCompileData, undefined, false));
+
+    if (!hasCompileSource && compilePreviewLoadError) {
+      return {
+        kind: "unsupported",
+        title: "PDF 预览",
+        description: compilePreviewLoadError,
+      };
+    }
 
     return {
       kind: "compile",
       compileResult: snapshot.compileResult,
-      fileData: compileFileData,
-      fileUrl: compileFileUrl,
-      isLoading: Boolean(compilePreviewPath) && !hasCompileSource,
+      fileData: inlineCompileData,
+      fileUrl: undefined,
+      isLoading:
+        Boolean(compilePreviewPath) &&
+        snapshot.compileResult.status !== "failed" &&
+        !hasCompileSource,
       highlightedPage,
       highlights: syncHighlights,
       onPageJump: handlePageJump,
@@ -1254,10 +1359,11 @@ function App() {
     previewAsset,
     compilePreviewAsset,
     compilePreviewPath,
-    compilePreviewUrl,
+    compilePdfData,
     highlightedPage,
     previewSelection,
     snapshot,
+    compilePreviewLoadError,
     syncHighlights,
   ]);
 
@@ -1293,6 +1399,20 @@ function App() {
     return <div className="app-shell loading-shell">正在启动 ViewerLeaf…</div>;
   }
 
+  const compileStatusLabel =
+    snapshot.compileResult.status === "success"
+      ? "成功"
+      : snapshot.compileResult.status === "failed"
+        ? "失败"
+        : snapshot.compileResult.status === "running"
+          ? "正在编译"
+          : "空闲";
+  const compileNeedsAttention = Boolean(
+    compileEnvironment &&
+      (!compileEnvironment.ready ||
+        !compileEnvironment.availableEngines.includes(snapshot.projectConfig.engine as LatexEngine)),
+  );
+
   return (
     <div className="app-shell fade-in">
       <header className="topbar">
@@ -1306,19 +1426,10 @@ function App() {
           )}
         </div>
         <div className="topbar-center">
-          <span className="topbar-metric">排版引擎 <strong>{snapshot.projectConfig.engine}</strong></span>
           <span className="topbar-metric">当前配置 <strong>{activeProfile?.label ?? "未选择"}</strong></span>
           <span className="topbar-metric">
             编译状态
-            <strong>
-              {snapshot.compileResult.status === "success"
-                ? "成功"
-                : snapshot.compileResult.status === "failed"
-                  ? "失败"
-                  : snapshot.compileResult.status === "running"
-                    ? "正在编译"
-                    : "空闲"}
-            </strong>
+            <strong>{compileStatusLabel}</strong>
           </span>
         </div>
         <div className="topbar-right">
@@ -1330,22 +1441,18 @@ function App() {
           </button>
           {hasProject && (
             <>
-              <label className="topbar-toggle">
-                <input
-                  type="checkbox"
-                  checked={snapshot.projectConfig.autoCompile}
-                  onChange={() => void toggleAutoCompile()}
-                />
-                <span>自动编译（保存时）</span>
-              </label>
               <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
               <button
-                className="btn-secondary hover-spring"
-                onClick={() => void handleManualCompile()}
+                className="compile-launch-btn hover-spring"
+                onClick={() => void handleInteractiveCompile()}
                 type="button"
                 disabled={snapshot.compileResult.status === "running"}
+                title={compileNeedsAttention ? "本地 TeX 环境未就绪，打开 LaTeX 配置" : "编译当前项目"}
+                aria-label={compileNeedsAttention ? "打开 LaTeX 配置" : "编译当前项目"}
               >
-                {snapshot.compileResult.status === "running" ? "编译中..." : "编译"}
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <polygon points="8,5 19,12 8,19" fill="currentColor"></polygon>
+                </svg>
               </button>
               <button className="btn-primary hover-spring" onClick={handleRunAgent} type="button" disabled={isStreaming}>
                 {isStreaming ? "执行中..." : `执行 ${activeProfile?.label ?? "当前配置"}`}
@@ -1397,6 +1504,14 @@ function App() {
       {hasProject && (
         <div className="workspace-container">
           <div className="activity-bar">
+            <button
+              className={`activity-icon hover-spring ${drawerTab === "latex" ? "is-active" : ""}`}
+              onClick={() => setDrawerTab("latex")}
+              title="LaTeX 编译配置"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h10l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path><path d="M14 4v4h4"></path><path d="M8 12h8"></path><path d="M8 16h6"></path></svg>
+              {compileNeedsAttention && <span className="activity-icon-dot activity-icon-dot-warning"></span>}
+            </button>
             <button
               className={`activity-icon hover-spring ${drawerTab === "ai" ? "is-active" : ""}`}
               onClick={() => setDrawerTab("ai")}
@@ -1455,6 +1570,13 @@ function App() {
             pendingPatchSummary={pendingPatch?.summary}
             onApplyPatch={handleApplyPatch}
             compileLog={snapshot.compileResult.logOutput}
+            compileStatus={snapshot.compileResult.status}
+            projectConfig={snapshot.projectConfig}
+            compileEnvironment={compileEnvironment}
+            isCheckingCompileEnvironment={isCheckingCompileEnvironment}
+            onRefreshCompileEnvironment={() => void refreshCompileEnvironment()}
+            onSetCompileEngine={(engine) => void handleSetCompileEngine(engine)}
+            onSetAutoCompile={(enabled) => void handleSetAutoCompile(enabled)}
             diagnosticsCount={snapshot.compileResult.diagnostics.length}
             briefs={snapshot.figureBriefs}
             assets={snapshot.assets}

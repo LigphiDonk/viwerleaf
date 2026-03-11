@@ -73,7 +73,7 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
   if (preview.kind === "pdf") {
     return (
       <PdfJsViewer
-        source={toPdfSource(preview.fileData, preview.fileUrl)}
+        source={toPdfSource(preview.fileData, preview.fileUrl, false)}
         reloadKey={preview.fileUrl ?? preview.title}
         isLoading={preview.isLoading}
         highlightedPage={preview.highlightedPage}
@@ -94,7 +94,7 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
 
   return (
     <PdfJsViewer
-      source={toPdfSource(preview.fileData ?? preview.compileResult.pdfData, preview.fileUrl)}
+      source={toPdfSource(preview.fileData ?? preview.compileResult.pdfData, preview.fileUrl, false)}
       reloadKey={`${preview.compileResult.timestamp}:${preview.compileResult.pdfPath ?? preview.fileUrl ?? ""}`}
       isLoading={preview.isLoading}
       highlightedPage={preview.highlightedPage}

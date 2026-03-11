@@ -4,7 +4,7 @@ export type CompileStatus = "idle" | "running" | "success" | "failed" | "cancele
 export type AgentProfileId = "outline" | "draft" | "polish" | "de_ai" | "review";
 export type FigureBriefStatus = "draft" | "ready" | "generated";
 export type AssetKind = "figure" | "table" | "diagram";
-export type DrawerTab = "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
+export type DrawerTab = "latex" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
 export type WorkspacePaneMode = "files" | "outline";
 export type ProjectFileType =
   | "latex"
@@ -70,6 +70,14 @@ export interface CompileResult {
   logPath: string;
   logOutput: string;
   timestamp: string;
+}
+
+export interface CompileEnvironmentStatus {
+  ready: boolean;
+  latexmkAvailable: boolean;
+  synctexAvailable: boolean;
+  availableEngines: LatexEngine[];
+  missingTools: string[];
 }
 
 export interface SyncHighlight {

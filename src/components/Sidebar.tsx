@@ -5,9 +5,12 @@ import { PROVIDER_PRESETS } from "../lib/providerPresets";
 import type {
   AgentMessage,
   AgentProfile,
+  CompileEnvironmentStatus,
   DrawerTab,
   FigureBriefDraft,
   GeneratedAsset,
+  LatexEngine,
+  ProjectConfig,
   ProviderConfig,
   SkillManifest,
   TestResult,
@@ -23,7 +26,14 @@ interface SidebarProps {
   onRunAgent: () => void;
   pendingPatchSummary?: string;
   onApplyPatch: () => void;
+  compileStatus: string;
   compileLog: string;
+  projectConfig: ProjectConfig;
+  compileEnvironment: CompileEnvironmentStatus | null;
+  isCheckingCompileEnvironment: boolean;
+  onRefreshCompileEnvironment: () => void;
+  onSetCompileEngine: (engine: LatexEngine) => void;
+  onSetAutoCompile: (enabled: boolean) => void;
   diagnosticsCount: number;
   briefs: FigureBriefDraft[];
   assets: GeneratedAsset[];
@@ -54,6 +64,13 @@ function skillEnabled(skill: SkillManifest) {
   return skill.isEnabled ?? skill.enabled ?? false;
 }
 
+const LATEX_ENGINES: LatexEngine[] = ["xelatex", "pdflatex", "lualatex"];
+const LATEX_ENGINE_LABELS: Record<LatexEngine, string> = {
+  xelatex: "XeLaTeX",
+  pdflatex: "pdfLaTeX",
+  lualatex: "LuaLaTeX",
+};
+
 export function Sidebar({
   tab,
   messages,
@@ -63,7 +80,14 @@ export function Sidebar({
   onRunAgent,
   pendingPatchSummary,
   onApplyPatch,
+  compileStatus,
   compileLog,
+  projectConfig,
+  compileEnvironment,
+  isCheckingCompileEnvironment,
+  onRefreshCompileEnvironment,
+  onSetCompileEngine,
+  onSetAutoCompile,
   diagnosticsCount,
   briefs,
   assets,
@@ -102,6 +126,11 @@ export function Sidebar({
     () => PROVIDER_PRESETS.find((preset) => preset.vendor === selectedVendor) ?? PROVIDER_PRESETS[0],
     [selectedVendor],
   );
+  const availableEngineSet = useMemo(
+    () => new Set<LatexEngine>(compileEnvironment?.availableEngines ?? []),
+    [compileEnvironment],
+  );
+  const selectedEngineAvailable = availableEngineSet.has(projectConfig.engine as LatexEngine);
 
   const totalInputTokens = usageRecords.reduce((sum, item) => sum + item.inputTokens, 0);
   const totalOutputTokens = usageRecords.reduce((sum, item) => sum + item.outputTokens, 0);
@@ -157,6 +186,136 @@ export function Sidebar({
 
   return (
     <div className="primary-sidebar">
+      {tab === "latex" && (
+        <>
+          <div className="sidebar-header">LaTeX 编译</div>
+          <div className="sidebar-content sidebar-stack">
+            <div className="card latex-status-card">
+              <div className="latex-status-header">
+                <div>
+                  <div className="card-header" style={{ marginBottom: 4 }}>本地编译环境</div>
+                  <div className="text-subtle text-xs">
+                    打开这个面板时会重新检查 `latexmk`、`synctex` 和可用引擎。
+                  </div>
+                </div>
+                <button className="btn-secondary" type="button" onClick={onRefreshCompileEnvironment}>
+                  {isCheckingCompileEnvironment ? "检查中..." : "重新检测"}
+                </button>
+              </div>
+
+              <div className="latex-tool-pills">
+                <span className={clsx("latex-tool-pill", compileEnvironment?.latexmkAvailable ? "ready" : "missing")}>
+                  latexmk
+                </span>
+                <span className={clsx("latex-tool-pill", compileEnvironment?.synctexAvailable ? "ready" : "missing")}>
+                  synctex
+                </span>
+                {LATEX_ENGINES.map((engine) => (
+                  <span
+                    key={engine}
+                    className={clsx("latex-tool-pill", availableEngineSet.has(engine) ? "ready" : "missing")}
+                  >
+                    {LATEX_ENGINE_LABELS[engine]}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {(isCheckingCompileEnvironment && !compileEnvironment) || !compileEnvironment ? (
+              <div className="card">
+                <div className="sidebar-empty-state">正在检查本地 TeX 工具链…</div>
+              </div>
+            ) : !compileEnvironment.ready ? (
+              <div className="card latex-setup-card">
+                <div className="card-header">还没检测到完整的本地编译资源</div>
+                <div className="text-subtle text-xs">
+                  缺少: {compileEnvironment.missingTools.join(" / ") || "latexmk / synctex / engine"}
+                </div>
+                <ol className="latex-guide-list">
+                  <li>先安装一个本地 TeX 发行版。macOS 上优先用 MacTeX，轻量方案可选 TinyTeX。</li>
+                  <li>安装完成后，在终端确认 `latexmk -v`、`xelatex --version`、`synctex` 至少能执行。</li>
+                  <li>如果是刚安装完，再重启一次 ViewerLeaf，然后回到这里点“重新检测”。</li>
+                </ol>
+                <pre className="latex-code-block">{`# 完整方案（推荐）
+brew install --cask mactex-no-gui
+
+# 轻量方案
+curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
+              </div>
+            ) : (
+              <>
+                <div className="card">
+                  <div className="card-header">项目编译选项</div>
+                  <label className="latex-toggle-row">
+                    <div>
+                      <div className="latex-row-title">自动编译</div>
+                      <div className="text-subtle text-xs">保存当前文件后自动触发本地编译。</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={projectConfig.autoCompile}
+                      onChange={(event) => onSetAutoCompile(event.target.checked)}
+                    />
+                  </label>
+
+                  <div className="sidebar-section-title" style={{ marginTop: 16 }}>编译引擎</div>
+                  <div className="latex-engine-grid">
+                    {LATEX_ENGINES.map((engine) => {
+                      const available = availableEngineSet.has(engine);
+                      const active = projectConfig.engine === engine;
+                      return (
+                        <button
+                          key={engine}
+                          type="button"
+                          className={clsx(
+                            "latex-engine-option",
+                            active && "is-active",
+                            !available && "is-unavailable",
+                          )}
+                          disabled={!available}
+                          onClick={() => onSetCompileEngine(engine)}
+                        >
+                          <span>{LATEX_ENGINE_LABELS[engine]}</span>
+                          <span className="text-subtle text-xs">{available ? "已检测到" : "未检测到"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {!selectedEngineAvailable && (
+                    <div className="latex-warning-note">
+                      当前项目配置为 {LATEX_ENGINE_LABELS[projectConfig.engine as LatexEngine] ?? projectConfig.engine}，
+                      但本机没有检测到这个引擎。先切到可用引擎，再手动编译。
+                    </div>
+                  )}
+                </div>
+
+                <div className="card">
+                  <div className="card-header">当前状态</div>
+                  <div className="latex-inline-meta">
+                    <span
+                      className={clsx(
+                        "status-badge",
+                        compileStatus === "running" ? "running" : diagnosticsCount > 0 ? "failed" : "success",
+                      )}
+                    >
+                      {compileStatus === "success"
+                        ? "最近一次编译成功"
+                        : compileStatus === "failed"
+                          ? "最近一次编译失败"
+                          : compileStatus === "running"
+                            ? "正在编译"
+                            : "等待编译"}
+                    </span>
+                    <span className="text-subtle text-xs">诊断 {diagnosticsCount} 项</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
       {tab === "ai" && (
         <>
           <div className="sidebar-header">AI 智能体助手</div>
