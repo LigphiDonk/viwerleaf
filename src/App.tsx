@@ -13,6 +13,7 @@ import { OutlineTree } from "./components/OutlineTree";
 import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectTree } from "./components/ProjectTree";
 import { Sidebar } from "./components/Sidebar";
+import { WelcomeWorkspace } from "./components/WelcomeWorkspace";
 import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
 import { desktop, isTauriRuntime } from "./lib/desktop";
 import { resolvePdfSource } from "./lib/pdf-source";
@@ -98,7 +99,7 @@ function toProjectRelativePath(rootPath: string, filePath?: string) {
 
 const COMPILE_DEBUG_LOG_LIMIT = 300;
 const RECENT_WORKSPACE_STORAGE_KEY = "viewerleaf:recent-workspaces:v1";
-const OPEN_WORKSPACE_STORAGE_KEY = "viewerleaf:open-workspaces:v1";
+const WINDOW_WORKSPACE_TABS_STORAGE_KEY = "viewerleaf:window-workspaces:v1";
 const AUTO_SAVE_STORAGE_KEY = "viewerleaf:auto-save:v1";
 const MAX_RECENT_WORKSPACES = 10;
 const MAX_OPEN_WORKSPACES = 6;
@@ -152,6 +153,43 @@ function writeStoredWorkspaceEntries(key: string, entries: WorkspaceEntry[]) {
   window.localStorage.setItem(key, JSON.stringify(entries));
 }
 
+function readWindowSessionWorkspaceEntries(key: string): WorkspaceEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item): item is WorkspaceEntry => Boolean(item && typeof item.rootPath === "string" && item.rootPath))
+      .map((item) => ({
+        rootPath: item.rootPath,
+        label: typeof item.label === "string" && item.label.trim()
+          ? item.label
+          : workspaceLabelFromRoot(item.rootPath),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function writeWindowSessionWorkspaceEntries(key: string, entries: WorkspaceEntry[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(key, JSON.stringify(entries));
+}
+
 function readStoredBoolean(key: string, fallback = false) {
   if (typeof window === "undefined") {
     return fallback;
@@ -200,7 +238,7 @@ function App() {
     readStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY),
   );
   const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceEntry[]>(() =>
-    readStoredWorkspaceEntries(OPEN_WORKSPACE_STORAGE_KEY),
+    readWindowSessionWorkspaceEntries(WINDOW_WORKSPACE_TABS_STORAGE_KEY),
   );
   const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(() =>
     readStoredBoolean(AUTO_SAVE_STORAGE_KEY, false),
@@ -417,6 +455,10 @@ function App() {
     ? activeFilePath.slice(0, activeFilePath.lastIndexOf("/"))
     : "";
   const activeWorkspaceRoot = snapshot?.projectConfig.rootPath ?? "";
+  const isMacOverlayWindow =
+    typeof window !== "undefined" &&
+    isTauriRuntime() &&
+    /mac/i.test(window.navigator.userAgent);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -427,7 +469,7 @@ function App() {
   }, [recentWorkspaces]);
 
   useEffect(() => {
-    writeStoredWorkspaceEntries(OPEN_WORKSPACE_STORAGE_KEY, workspaceTabs);
+    writeWindowSessionWorkspaceEntries(WINDOW_WORKSPACE_TABS_STORAGE_KEY, workspaceTabs);
   }, [workspaceTabs]);
 
   useEffect(() => {
@@ -2246,40 +2288,50 @@ function App() {
   );
 
   return (
-    <div className="app-shell fade-in">
-      <header className="topbar">
+    <div className={`app-shell fade-in ${hasProject ? "" : "is-welcome"}`}>
+      <header
+        className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""}`}
+        data-tauri-drag-region={!hasProject && isMacOverlayWindow ? "true" : undefined}
+      >
         <div className="topbar-left">
-          <span className="brand-title">ViewerLeaf</span>
-          <WorkspaceMenuBar
-            showInAppFileMenu={!isTauriRuntime()}
-            hasProject={hasProject}
-            hasDirtyChanges={dirtyPaths.length > 0}
-            activeWorkspaceRoot={activeWorkspaceRoot}
-            workspaceTabs={workspaceTabs}
-            recentWorkspaces={recentWorkspaces}
-            isAutoSaveEnabled={isAutoSaveEnabled}
-            isCompileOnSaveEnabled={snapshot.projectConfig.autoCompile}
-            isBusy={isStreaming}
-            onOpenProject={() => void handleOpenExistingProject()}
-            onCreateProject={() => void handleCreateNewProject()}
-            onSaveCurrent={() => void handleSaveCurrentFile()}
-            onSaveAll={() => void handleSaveAllFiles()}
-            onToggleAutoSave={setIsAutoSaveEnabled}
-            onToggleCompileOnSave={(enabled) => void handleSetAutoCompile(enabled)}
-            onSelectWorkspace={(rootPath) => void activateWorkspace(rootPath)}
-            onCloseWorkspaceTab={(rootPath) => void handleCloseWorkspaceTab(rootPath)}
-          />
-        </div>
-        <div className="topbar-center">
-          <span className="topbar-metric">当前配置 <strong>{activeProfile?.label ?? "未选择"}</strong></span>
-          <span className="topbar-metric">
-            编译状态
-            <strong>{compileStatusLabel}</strong>
+          <span
+            className={`brand-title ${hasProject ? "" : "brand-title--welcome"}`}
+            data-tauri-drag-region={hasProject && isMacOverlayWindow ? "true" : undefined}
+          >
+            ViewerLeaf
           </span>
-        </div>
-        <div className="topbar-right">
           {hasProject && (
-            <>
+            <WorkspaceMenuBar
+              showInAppFileMenu={!isTauriRuntime()}
+              hasProject={hasProject}
+              hasDirtyChanges={dirtyPaths.length > 0}
+              activeWorkspaceRoot={activeWorkspaceRoot}
+              workspaceTabs={workspaceTabs}
+              recentWorkspaces={recentWorkspaces}
+              isAutoSaveEnabled={isAutoSaveEnabled}
+              isCompileOnSaveEnabled={snapshot.projectConfig.autoCompile}
+              isBusy={isStreaming}
+              onOpenProject={() => void handleOpenExistingProject()}
+              onCreateProject={() => void handleCreateNewProject()}
+              onSaveCurrent={() => void handleSaveCurrentFile()}
+              onSaveAll={() => void handleSaveAllFiles()}
+              onToggleAutoSave={setIsAutoSaveEnabled}
+              onToggleCompileOnSave={(enabled) => void handleSetAutoCompile(enabled)}
+              onSelectWorkspace={(rootPath) => void activateWorkspace(rootPath)}
+              onCloseWorkspaceTab={(rootPath) => void handleCloseWorkspaceTab(rootPath)}
+            />
+          )}
+        </div>
+        {hasProject && (
+          <>
+            <div className="topbar-center" data-tauri-drag-region={isMacOverlayWindow ? "true" : undefined}>
+              <span className="topbar-metric">当前配置 <strong>{activeProfile?.label ?? "未选择"}</strong></span>
+              <span className="topbar-metric">
+                编译状态
+                <strong>{compileStatusLabel}</strong>
+              </span>
+            </div>
+            <div className="topbar-right">
               <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
               <button
                 className="compile-launch-btn hover-spring"
@@ -2296,48 +2348,18 @@ function App() {
               <button className="btn-primary hover-spring" onClick={handleRunAgent} type="button" disabled={isStreaming}>
                 {isStreaming ? "执行中..." : `执行 ${activeProfile?.label ?? "当前配置"}`}
               </button>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </header>
 
       {!hasProject && (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 40,
-            background:
-              "radial-gradient(circle at top left, rgba(184, 164, 125, 0.18), transparent 35%), linear-gradient(180deg, var(--bg-app), var(--bg-sidebar))",
-          }}
-        >
-          <div
-            style={{
-              width: "min(720px, 100%)",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-light)",
-              borderRadius: 24,
-              boxShadow: "var(--shadow-lg)",
-              padding: 36,
-            }}
-          >
-            <div style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 12 }}>Workspace</div>
-            <h1 style={{ margin: "0 0 12px 0", fontSize: 34, color: "var(--text-primary)" }}>打开已有项目，或创建新的论文工程</h1>
-            <p style={{ margin: "0 0 24px 0", color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              现在不会再强制进入示例项目。先选择你的 LaTeX 工程目录，或者新建一个 ViewerLeaf 项目，再开始编辑、编译和调用 Agent。
-            </p>
-            <div style={{ display: "flex", gap: 12 }}>
-              <button className="btn-primary hover-spring" type="button" onClick={() => void handleOpenExistingProject()}>
-                打开已有项目
-              </button>
-              <button className="btn-secondary hover-spring" type="button" onClick={() => void handleCreateNewProject()}>
-                创建项目
-              </button>
-            </div>
-          </div>
-        </div>
+        <WelcomeWorkspace
+          recentWorkspaces={recentWorkspaces}
+          onOpenProject={() => void handleOpenExistingProject()}
+          onCreateProject={() => void handleCreateNewProject()}
+          onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
+        />
       )}
 
       {hasProject && (
