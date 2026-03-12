@@ -1,59 +1,21 @@
 import { loadProvider } from "./providers/index.mjs";
-import { getTools } from "./tools/registry.mjs";
-import { runAgentWithOpencode, supportsOpencodeVendor } from "./opencode.mjs";
+import { resolveActiveTools } from "./tools/registry.mjs";
 import { emit } from "./utils/ndjson.mjs";
 
 export async function runAgent(request) {
-  const requestedEngine = process.env.VIEWERLEAF_AGENT_ENGINE;
-  const useOpencode =
-    requestedEngine === "opencode" && supportsOpencodeVendor(request?.provider?.vendor);
-
-  if (useOpencode) {
-    try {
-      await runAgentWithOpencode(request);
-      return;
-    } catch (error) {
-      const message = error?.message || String(error);
-      emit({ type: "error", message: `opencode runner failed: ${message}` });
-      emit({
-        type: "done",
-        usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          model: request?.provider?.model || "",
-        },
-      });
-      return;
-    }
-  }
-
-  if (requestedEngine === "opencode") {
-    emit({
-      type: "error",
-      message: `opencode runner does not support provider vendor: ${request?.provider?.vendor ?? "unknown"}`,
-    });
-    emit({
-      type: "done",
-      usage: {
-        inputTokens: 0,
-        outputTokens: 0,
-        model: request?.provider?.model || "",
-      },
-    });
-    return;
-  }
-
   await runLegacyAgent(request);
 }
 
 async function runLegacyAgent(request) {
   const { provider: providerConfig, systemPrompt, tools: toolIds, context } = request;
   const provider = loadProvider(providerConfig);
-  const tools = getTools(toolIds);
+  const discoveredToolIds = new Set();
   const toolCtx = {
     projectRoot: context.projectRoot,
     activeFilePath: context.activeFilePath,
     sessionId: request.sessionId,
+    userMessage: request.userMessage,
+    requestedToolIds: toolIds,
   };
 
   const messages = [{ role: "system", content: systemPrompt }];
@@ -77,6 +39,12 @@ async function runLegacyAgent(request) {
 
   while (round < maxToolRounds) {
     round += 1;
+    const { tools, toolIds: activeToolIds } = resolveActiveTools({
+      requestedToolIds: toolIds,
+      userMessage: request.userMessage,
+      context,
+      discoveredToolIds: [...discoveredToolIds],
+    });
     let hasToolCalls = false;
     let textAccum = "";
     const pendingToolCalls = [];
@@ -84,7 +52,6 @@ async function runLegacyAgent(request) {
     try {
       for await (const chunk of provider.chat({ messages, tools })) {
         if (chunk.type === "text") {
-          emit({ type: "text_delta", content: chunk.text });
           textAccum += chunk.text;
         } else if (chunk.type === "tool_call") {
           hasToolCalls = true;
@@ -101,6 +68,9 @@ async function runLegacyAgent(request) {
     }
 
     if (!hasToolCalls) {
+      if (textAccum) {
+        emit({ type: "text_delta", content: textAccum });
+      }
       break;
     }
 
@@ -127,14 +97,23 @@ async function runLegacyAgent(request) {
 
       const tool = tools.find((item) => item.id === call.name);
       if (!tool) {
-        const errMsg = `Unknown tool: ${call.name}`;
+        const errMsg = `Unknown tool: ${call.name}. Active tools: ${activeToolIds.join(", ")}`;
         emit({ type: "tool_call_result", toolId: call.name, output: errMsg, status: "error" });
         messages.push({ role: "tool", tool_call_id: call.id, content: errMsg });
         continue;
       }
 
       try {
-        const result = await tool.execute(call.args, toolCtx);
+        const result = await tool.execute(call.args, {
+          ...toolCtx,
+          activeToolIds,
+          discoveredToolIds: [...discoveredToolIds],
+        });
+        if (Array.isArray(result?.metadata?.discoveredToolIds)) {
+          for (const toolId of result.metadata.discoveredToolIds) {
+            discoveredToolIds.add(toolId);
+          }
+        }
         emit({ type: "tool_call_result", toolId: call.name, output: result.output, status: "completed" });
 
         if (result.sideEffects) {
@@ -167,6 +146,9 @@ function buildUserMessage(context, userMessage) {
   const parts = [];
   if (typeof userMessage === "string" && userMessage.trim()) {
     parts.push(userMessage.trim());
+  }
+  if (context.activeFilePath) {
+    parts.push(`Current active file: ${context.activeFilePath}`);
   }
   if (context.selectedText) {
     parts.push(`\`\`\`\n${context.selectedText}\n\`\`\``);

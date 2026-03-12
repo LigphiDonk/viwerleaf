@@ -2,6 +2,22 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, Result as SqlResult};
 
+const DEFAULT_CHAT_TOOLS: &str = r#"["tool_search","list","read","glob","grep","edit","write","apply_patch","list_sections","read_section","read_bib_entries","list_files","search_project","apply_text_patch","insert_at_line"]"#;
+
+const REQUIRED_CHAT_TOOLS: &[&str] = &[
+    "tool_search",
+    "list",
+    "read",
+    "glob",
+    "grep",
+    "edit",
+    "write",
+    "apply_patch",
+    "list_sections",
+    "read_section",
+    "read_bib_entries",
+];
+
 pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     std::fs::create_dir_all(app_data_dir).ok();
     let db_path = app_data_dir.join("viewerleaf.db");
@@ -126,10 +142,9 @@ fn seed_providers(conn: &Connection) -> SqlResult<()> {
 }
 
 fn seed_profiles(conn: &Connection) -> SqlResult<()> {
-    let all_tools = r#"["read_section","list_sections","search_project","apply_text_patch","insert_at_line","read_bib_entries"]"#;
     conn.execute(
         "INSERT INTO profiles (id, label, summary, stage, provider_id, model, skill_ids_json, tool_allowlist_json, output_mode, is_builtin) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
-        params!["chat", "Chat", "General assistant", "chat", "anthropic-main", "claude-sonnet-4", "[]", all_tools, "chat"],
+        params!["chat", "Chat", "General assistant", "chat", "anthropic-main", "claude-sonnet-4", "[]", DEFAULT_CHAT_TOOLS, "chat"],
     )?;
     Ok(())
 }
@@ -160,13 +175,47 @@ fn migrate_profiles(conn: &Connection) -> SqlResult<()> {
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| "anthropic-main".to_string());
-        let all_tools = r#"["read_section","list_sections","search_project","apply_text_patch","insert_at_line","read_bib_entries"]"#;
         conn.execute(
             "INSERT INTO profiles (id, label, summary, stage, provider_id, model, skill_ids_json, tool_allowlist_json, output_mode, is_builtin) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
-            params!["chat", "Chat", "General assistant", "chat", provider_id, "", "[]", all_tools, "chat"],
+            params!["chat", "Chat", "General assistant", "chat", provider_id, "", "[]", DEFAULT_CHAT_TOOLS, "chat"],
         )?;
+    } else {
+        ensure_builtin_chat_tools(conn, REQUIRED_CHAT_TOOLS)?;
     }
 
+    Ok(())
+}
+
+fn ensure_builtin_chat_tools(conn: &Connection, tool_ids: &[&str]) -> SqlResult<()> {
+    let current: Option<String> = conn
+        .query_row(
+            "SELECT tool_allowlist_json FROM profiles WHERE id='chat' AND is_builtin=1 LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    let Some(current) = current else {
+        return Ok(());
+    };
+
+    let mut tools: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
+    let mut changed = false;
+    for tool_id in tool_ids {
+        if tools.iter().any(|item| item == tool_id) {
+            continue;
+        }
+        tools.push((*tool_id).to_string());
+        changed = true;
+    }
+
+    if !changed {
+        return Ok(());
+    }
+    let tools_json = serde_json::to_string(&tools).unwrap_or_else(|_| current.clone());
+    conn.execute(
+        "UPDATE profiles SET tool_allowlist_json=?1 WHERE id='chat' AND is_builtin=1",
+        params![tools_json],
+    )?;
     Ok(())
 }
 

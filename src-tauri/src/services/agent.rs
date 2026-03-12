@@ -1,7 +1,5 @@
-use std::collections::HashSet;
-use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::io::BufRead;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::{params, OptionalExtension};
@@ -14,6 +12,25 @@ use crate::models::{
 };
 use crate::services::{profile, provider, sidecar, skill};
 use crate::state::AppState;
+
+const DEFAULT_AGENT_SYSTEM_PROMPT: &str = r#"You are ViewerLeaf, an AI assistant for LaTeX and project workspaces.
+
+When the user asks about the current project, files, paper structure, or document content, inspect the workspace directly with tools instead of merely saying that you will inspect it.
+
+Use this rough order:
+1. If you are unsure which tool to use, call `tool_search` first
+2. `list` for project structure
+3. `glob` or `grep` for discovery and lookup
+4. `read` for exact file content
+5. `list_sections` or `read_section` when working with LaTeX structure
+6. `read_bib_entries` for bibliography lookup
+7. `edit`, `write`, or `apply_patch` only when editing is requested
+
+After `tool_search`, use the returned tool ids in the next round instead of repeating planning text.
+
+Do not repeat the same planning sentence across tool rounds.
+After enough tool results are available, answer directly and stop.
+If a tool fails or the required information is unavailable, explain that once and move on."#;
 
 /// Insert the user message and ensure the session exists in the DB.
 /// Called synchronously from the command handler *before* spawning the
@@ -73,8 +90,11 @@ pub fn run_agent(
     let conn = state.db.lock().expect("db lock poisoned");
     let profile = profile::get_profile(&conn, profile_id).map_err(anyhow::Error::msg)?;
     let prov = provider::get_provider(&conn, &profile.provider_id).map_err(anyhow::Error::msg)?;
-    let system_prompt =
+    let mut system_prompt =
         skill::load_skill_prompts(&conn, &profile.skill_ids).map_err(anyhow::Error::msg)?;
+    if system_prompt.trim().is_empty() {
+        system_prompt = DEFAULT_AGENT_SYSTEM_PROMPT.to_string();
+    }
     drop(conn);
 
     let user_message = user_message
@@ -156,20 +176,8 @@ pub fn run_agent(
         }
     }
 
-    let mut child = match sidecar::spawn_sidecar(state, "agent", &payload) {
-        Ok(child) => child,
-        Err(sidecar_err) => {
-            return run_agent_with_opencode_binary(
-                app_handle,
-                state,
-                &request,
-                &profile.provider_id,
-                profile_id,
-                &session_id,
-            )
-            .with_context(|| format!("failed to spawn agent sidecar: {sidecar_err}"));
-        }
-    };
+    let mut child = sidecar::spawn_sidecar(state, "agent", &payload)
+        .with_context(|| "failed to spawn agent sidecar".to_string())?;
 
     let stdout = child.stdout.take().context("sidecar stdout unavailable")?;
     let reader = std::io::BufReader::new(stdout);
@@ -427,383 +435,6 @@ fn persist_assistant_message(
     )?;
     touch_session(&conn, session_id)?;
     Ok(())
-}
-
-fn run_agent_with_opencode_binary(
-    app_handle: &AppHandle,
-    state: &AppState,
-    request: &AgentRequest,
-    provider_db_id: &str,
-    profile_id: &str,
-    session_id: &str,
-) -> Result<AgentRunResult> {
-    let opencode_provider_id = map_vendor_to_opencode_provider(&request.provider.vendor)
-        .context("unsupported provider vendor")?;
-    let model_ref = build_opencode_model_ref(opencode_provider_id, &request.provider.model);
-    if model_ref.trim().is_empty() {
-        anyhow::bail!("missing model for opencode fallback runner");
-    }
-
-    let opencode_bin = resolve_opencode_binary(&state.sidecar_dir)?;
-    let prompt = build_opencode_prompt(request);
-    let mut provider_options = serde_json::Map::new();
-    if !request.provider.api_key.trim().is_empty() {
-        provider_options.insert(
-            "apiKey".to_string(),
-            serde_json::Value::String(request.provider.api_key.clone()),
-        );
-    }
-    if !request.provider.base_url.trim().is_empty() {
-        provider_options.insert(
-            "baseURL".to_string(),
-            serde_json::Value::String(request.provider.base_url.clone()),
-        );
-    }
-
-    let mut provider_entry = serde_json::Map::new();
-    provider_entry.insert(
-        "options".to_string(),
-        serde_json::Value::Object(provider_options),
-    );
-
-    let mut provider_map = serde_json::Map::new();
-    provider_map.insert(
-        opencode_provider_id.to_string(),
-        serde_json::Value::Object(provider_entry),
-    );
-
-    let config = serde_json::json!({
-        "$schema": "https://opencode.ai/config.json",
-        "share": "disabled",
-        "model": model_ref,
-        "enabled_providers": [opencode_provider_id],
-        "provider": provider_map,
-    });
-    let config_raw = serde_json::to_string(&config)?;
-
-    let project_root = if request.context.project_root.trim().is_empty() {
-        ".".to_string()
-    } else {
-        request.context.project_root.clone()
-    };
-    let opencode_home = Path::new(&project_root)
-        .join(".viewerleaf")
-        .join("opencode-home");
-    std::fs::create_dir_all(&opencode_home).ok();
-
-    let mut child = Command::new(&opencode_bin)
-        .args(["run", "--format", "json", "--model", &model_ref])
-        .current_dir(&project_root)
-        .env("OPENCODE_CLIENT", "viewerleaf")
-        .env("OPENCODE_TEST_HOME", &opencode_home)
-        .env("OPENCODE_DISABLE_PROJECT_CONFIG", "1")
-        .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
-        .env("OPENCODE_AUTO_SHARE", "0")
-        .env("OPENCODE_CONFIG_CONTENT", config_raw)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| {
-            format!(
-                "failed to spawn opencode binary at {}",
-                opencode_bin.to_string_lossy()
-            )
-        })?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .context("failed to write opencode prompt")?;
-        drop(stdin);
-    }
-
-    let stdout = child.stdout.take().context("opencode stdout unavailable")?;
-    let reader = std::io::BufReader::new(stdout);
-    let mut full_response = String::new();
-    let mut last_error: Option<String> = None;
-    let mut started_tools = HashSet::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-            continue;
-        };
-
-        let event_type = event
-            .get("type")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default();
-        match event_type {
-            "text" => {
-                let text = event
-                    .get("part")
-                    .and_then(|part| part.get("text"))
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                if !text.is_empty() {
-                    full_response.push_str(&text);
-                    let _ =
-                        app_handle.emit("agent:stream", &StreamChunk::TextDelta { content: text });
-                }
-            }
-            "tool_use" => {
-                let part = event.get("part").cloned().unwrap_or_default();
-                let part_id = part
-                    .get("id")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                let tool_id = part
-                    .get("tool")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("tool")
-                    .to_string();
-                let input = part
-                    .get("state")
-                    .and_then(|state| state.get("input"))
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({}));
-                let status = part
-                    .get("state")
-                    .and_then(|state| state.get("status"))
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default();
-
-                if !part_id.is_empty() && !started_tools.contains(&part_id) {
-                    started_tools.insert(part_id.clone());
-                    let _ = app_handle.emit(
-                        "agent:stream",
-                        &StreamChunk::ToolCallStart {
-                            tool_id: tool_id.clone(),
-                            args: input,
-                        },
-                    );
-                }
-
-                if status == "completed" {
-                    let output = value_to_text(
-                        part.get("state")
-                            .and_then(|state| state.get("output"))
-                            .unwrap_or(&serde_json::Value::Null),
-                    );
-                    let _ = app_handle.emit(
-                        "agent:stream",
-                        &StreamChunk::ToolCallResult {
-                            tool_id,
-                            output,
-                            status: Some("completed".to_string()),
-                        },
-                    );
-                } else if status == "error" {
-                    let output = value_to_text(
-                        part.get("state")
-                            .and_then(|state| state.get("error"))
-                            .unwrap_or(&serde_json::Value::Null),
-                    );
-                    let _ = app_handle.emit(
-                        "agent:stream",
-                        &StreamChunk::ToolCallResult {
-                            tool_id,
-                            output,
-                            status: Some("error".to_string()),
-                        },
-                    );
-                }
-            }
-            "error" => {
-                let message = extract_opencode_error_message(&event);
-                last_error = Some(message.clone());
-                let _ = app_handle.emit("agent:stream", &StreamChunk::Error { message });
-            }
-            _ => {}
-        }
-    }
-
-    let output = child
-        .wait_with_output()
-        .context("failed to wait for opencode fallback")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let error_message = if stderr.is_empty() {
-            last_error.unwrap_or_else(|| "opencode fallback failed".to_string())
-        } else {
-            stderr
-        };
-        let _ = app_handle.emit(
-            "agent:stream",
-            &StreamChunk::Error {
-                message: error_message.clone(),
-            },
-        );
-        persist_assistant_message(
-            state,
-            session_id,
-            profile_id,
-            &format!("Error: {error_message}"),
-        )?;
-        anyhow::bail!("opencode fallback failed: {error_message}");
-    }
-
-    if !full_response.is_empty() {
-        persist_assistant_message(state, session_id, profile_id, &full_response)?;
-    } else if let Some(error_message) = last_error {
-        persist_assistant_message(
-            state,
-            session_id,
-            profile_id,
-            &format!("Error: {error_message}"),
-        )?;
-    }
-
-    {
-        let conn = state.db.lock().expect("db lock poisoned");
-        let _ = conn.execute(
-            "INSERT INTO usage_logs (id, session_id, provider_id, model, input_tokens, output_tokens) VALUES (?1,?2,?3,?4,0,0)",
-            params![
-                Uuid::new_v4().to_string(),
-                session_id,
-                provider_db_id,
-                request.provider.model
-            ],
-        );
-    }
-
-    let _ = app_handle.emit(
-        "agent:stream",
-        &StreamChunk::Done {
-            usage: UsageInfo {
-                input_tokens: 0,
-                output_tokens: 0,
-                model: request.provider.model.clone(),
-            },
-        },
-    );
-
-    Ok(AgentRunResult {
-        session_id: Some(session_id.to_string()),
-        message: None,
-        suggested_patch: None,
-    })
-}
-
-fn resolve_opencode_binary(sidecar_dir: &Path) -> Result<PathBuf> {
-    let binary_name = if cfg!(windows) {
-        "opencode.exe"
-    } else {
-        "opencode"
-    };
-    let node_modules = sidecar_dir.join("node_modules");
-    if !node_modules.is_dir() {
-        anyhow::bail!(
-            "sidecar node_modules not found at {}. Run `npm install --prefix sidecar` first.",
-            node_modules.to_string_lossy()
-        );
-    }
-
-    let mut candidates = Vec::new();
-    for entry in std::fs::read_dir(&node_modules)? {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !name.starts_with("opencode-") || name == "opencode-ai" {
-            continue;
-        }
-        let path = entry.path().join("bin").join(binary_name);
-        if path.is_file() {
-            candidates.push(path);
-        }
-    }
-
-    candidates.sort();
-    candidates
-        .into_iter()
-        .next()
-        .context("opencode binary not found in sidecar/node_modules")
-}
-
-fn map_vendor_to_opencode_provider(vendor: &str) -> Option<&'static str> {
-    match vendor {
-        "openai" => Some("openai"),
-        "anthropic" => Some("anthropic"),
-        "openrouter" => Some("openrouter"),
-        "deepseek" => Some("deepseek"),
-        "google" => Some("google"),
-        "custom" => Some("openai"),
-        _ => None,
-    }
-}
-
-fn build_opencode_model_ref(provider_id: &str, model: &str) -> String {
-    let trimmed = model.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if trimmed.contains('/') {
-        trimmed.to_string()
-    } else {
-        format!("{provider_id}/{trimmed}")
-    }
-}
-
-fn build_opencode_prompt(request: &AgentRequest) -> String {
-    let user_message = request.user_message.trim();
-    let selected = request.context.selected_text.trim();
-    let active_file = request.context.active_file_path.trim();
-
-    if selected.is_empty() {
-        if user_message.is_empty() {
-            return "Continue.".to_string();
-        }
-        return user_message.to_string();
-    }
-
-    let selected_label = if active_file.is_empty() {
-        "Selected text:".to_string()
-    } else {
-        format!("Selected text from {active_file}:")
-    };
-    let selected_block = format!("{selected_label}\n```\n{selected}\n```");
-
-    if user_message.is_empty() || user_message == selected {
-        return selected_block;
-    }
-
-    format!("{user_message}\n\n{selected_block}")
-}
-
-fn extract_opencode_error_message(event: &serde_json::Value) -> String {
-    event
-        .get("error")
-        .and_then(|error| error.get("data"))
-        .and_then(|data| data.get("message"))
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| value.trim().to_string())
-        .or_else(|| {
-            event
-                .get("error")
-                .and_then(|error| error.get("name"))
-                .and_then(|value| value.as_str())
-                .map(|value| value.to_string())
-        })
-        .unwrap_or_else(|| "unknown opencode error".to_string())
-}
-
-fn value_to_text(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(text) => text.clone(),
-        serde_json::Value::Null => String::new(),
-        other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
-    }
 }
 
 fn build_session_title(text: &str) -> String {

@@ -83,7 +83,10 @@ function buildRunMessage(request) {
   const activeFile = typeof context.activeFilePath === "string" ? context.activeFilePath.trim() : "";
 
   if (!selectedText) {
-    return userMessage || "Continue.";
+    if (!activeFile) {
+      return userMessage || "Continue.";
+    }
+    return [userMessage, `Current active file: ${activeFile}`].filter(Boolean).join("\n\n") || "Continue.";
   }
 
   const selectedLabel = activeFile ? `Selected text from ${activeFile}:` : "Selected text:";

@@ -1,5 +1,98 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+function stringifyContent(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value == null) {
+    return "";
+  }
+  return JSON.stringify(value);
+}
+
+function parseToolArguments(rawArgs) {
+  if (rawArgs && typeof rawArgs === "object") {
+    return rawArgs;
+  }
+  if (typeof rawArgs !== "string" || !rawArgs.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawArgs);
+  } catch {
+    return {};
+  }
+}
+
+function toAnthropicMessages(messages) {
+  const output = [];
+
+  for (const message of messages) {
+    if (!message || message.role === "system") {
+      continue;
+    }
+
+    if (message.role === "user") {
+      output.push({
+        role: "user",
+        content: stringifyContent(message.content),
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const content = [];
+      const text = stringifyContent(message.content).trim();
+      if (text) {
+        content.push({ type: "text", text });
+      }
+
+      for (const toolCall of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+        const name = toolCall?.function?.name;
+        if (!name) {
+          continue;
+        }
+        content.push({
+          type: "tool_use",
+          id: toolCall.id,
+          name,
+          input: parseToolArguments(toolCall?.function?.arguments),
+        });
+      }
+
+      if (content.length === 0) {
+        continue;
+      }
+
+      output.push({
+        role: "assistant",
+        content: content.length === 1 && content[0].type === "text" ? content[0].text : content,
+      });
+      continue;
+    }
+
+    if (message.role === "tool") {
+      const block = {
+        type: "tool_result",
+        tool_use_id: message.tool_call_id,
+        content: stringifyContent(message.content),
+      };
+      const last = output[output.length - 1];
+      if (last?.role === "user" && Array.isArray(last.content) && last.content.every((item) => item.type === "tool_result")) {
+        last.content.push(block);
+      } else {
+        output.push({
+          role: "user",
+          content: [block],
+        });
+      }
+    }
+  }
+
+  return output;
+}
+
 export function createAnthropicProvider(config) {
   const client = new Anthropic({
     apiKey: config.apiKey,
@@ -22,7 +115,6 @@ export function createAnthropicProvider(config) {
   return {
     async *chat({ messages, tools }) {
       const systemMessages = messages.filter((message) => message.role === "system");
-      const nonSystemMessages = messages.filter((message) => message.role !== "system");
       const system = systemMessages.map((message) => message.content).join("\n\n");
 
       const anthropicTools = tools.map((tool) => ({
@@ -35,12 +127,7 @@ export function createAnthropicProvider(config) {
         model: config.model,
         max_tokens: 4096,
         system,
-        messages: nonSystemMessages
-          .filter((message) => message.role === "user" || message.role === "assistant")
-          .map((message) => ({
-            role: message.role,
-            content: typeof message.content === "string" ? message.content : JSON.stringify(message.content),
-          })),
+        messages: toAnthropicMessages(messages),
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
       });
 
