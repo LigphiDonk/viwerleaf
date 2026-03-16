@@ -79,7 +79,7 @@ export function trimHistory(messages, model) {
 
   const currentTokens = estimateMessagesTokens(messages);
   if (currentTokens <= budget) {
-    return messages;
+    return [...messages];
   }
 
   const systemMessages = [];

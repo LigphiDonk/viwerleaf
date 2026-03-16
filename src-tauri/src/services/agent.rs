@@ -195,6 +195,8 @@ pub fn run_agent(
     // BufReader buffer to fill.
     let reader = std::io::BufReader::with_capacity(256, stdout);
     let mut full_response = String::new();
+    let mut active_thinking = String::new();
+    let mut committed_thinking = String::new();
     let mut last_error: Option<String> = None;
     let mut done_usage: Option<UsageInfo> = None;
 
@@ -206,6 +208,24 @@ pub fn run_agent(
 
         match serde_json::from_str::<StreamChunk>(&line) {
             Ok(chunk) => match &chunk {
+                StreamChunk::ThinkingDelta { content } => {
+                    active_thinking.push_str(content);
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
+                StreamChunk::ThinkingClear => {
+                    active_thinking.clear();
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
+                StreamChunk::ThinkingCommit => {
+                    if !active_thinking.trim().is_empty() {
+                        if !committed_thinking.is_empty() {
+                            committed_thinking.push_str("\n\n");
+                        }
+                        committed_thinking.push_str(active_thinking.trim());
+                    }
+                    active_thinking.clear();
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
                 StreamChunk::TextDelta { content } => {
                     full_response.push_str(content);
                     let _ = app_handle.emit("agent:stream", &chunk);
@@ -248,17 +268,19 @@ pub fn run_agent(
                 message: error_message.clone(),
             },
         );
-        persist_assistant_message(
-            state,
-            &session_id,
-            profile_id,
-            &format!("Error: {error_message}"),
-        )?;
+        let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
+        let partial_content = build_assistant_message_content(&all_thinking, &full_response);
+        if !partial_content.trim().is_empty() {
+            persist_assistant_message(state, &session_id, profile_id, &partial_content)?;
+        }
+        persist_assistant_message(state, &session_id, profile_id, &format!("Error: {error_message}"))?;
         return Err(anyhow::anyhow!("agent sidecar failed: {error_message}"));
     }
 
-    if !full_response.is_empty() {
-        persist_assistant_message(state, &session_id, profile_id, &full_response)?;
+    let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
+    let final_content = build_assistant_message_content(&all_thinking, &full_response);
+    if !final_content.trim().is_empty() {
+        persist_assistant_message(state, &session_id, profile_id, &final_content)?;
     } else if let Some(error_message) = last_error {
         persist_assistant_message(
             state,
@@ -395,18 +417,19 @@ pub fn list_agent_sessions(state: &AppState) -> Result<Vec<AgentSessionSummary>>
     let rows = stmt.query_map([], |row| {
         let title: String = row.get(2)?;
         let last_message: String = row.get(6)?;
+        let preview_source = sanitize_agent_message_for_display(&last_message);
         Ok(AgentSessionSummary {
             id: row.get(0)?,
             profile_id: row.get(1)?,
             title: if title.trim().is_empty() {
-                build_session_title(&last_message)
+                build_session_title(&preview_source)
             } else {
                 title
             },
             created_at: row.get(3)?,
             updated_at: row.get(4)?,
             message_count: row.get(5)?,
-            last_message_preview: truncate_preview(&last_message, 80),
+            last_message_preview: truncate_preview(&preview_source, 80),
         })
     })?;
 
@@ -421,9 +444,16 @@ fn load_session_history(
         "SELECT role, content FROM messages WHERE session_id=?1 AND role IN ('user','assistant') ORDER BY created_at LIMIT 40",
     )?;
     let rows = stmt.query_map(params![session_id], |row| {
+        let role: String = row.get(0)?;
+        let content: String = row.get(1)?;
+        let sanitized = if role == "assistant" {
+            sanitize_agent_message_for_history(&content)
+        } else {
+            content
+        };
         Ok(AgentConversationMessage {
-            role: row.get(0)?,
-            content: row.get(1)?,
+            role,
+            content: sanitized,
         })
     })?;
 
@@ -481,6 +511,58 @@ fn persist_assistant_message(
     )?;
     touch_session(&conn, session_id)?;
     Ok(())
+}
+
+fn build_assistant_message_content(thinking: &str, text: &str) -> String {
+    let mut parts = Vec::new();
+    let trimmed_thinking = thinking.trim();
+    if !trimmed_thinking.is_empty() {
+        parts.push(format!("<think>\n{trimmed_thinking}\n</think>"));
+    }
+    if !text.trim().is_empty() {
+        parts.push(text.to_string());
+    }
+    parts.join("\n\n")
+}
+
+fn merge_thinking_segments(committed: &str, active: &str) -> String {
+    let trimmed_committed = committed.trim();
+    let trimmed_active = active.trim();
+
+    match (trimmed_committed.is_empty(), trimmed_active.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => trimmed_committed.to_string(),
+        (true, false) => trimmed_active.to_string(),
+        (false, false) if trimmed_committed == trimmed_active => trimmed_committed.to_string(),
+        (false, false) => format!("{trimmed_committed}\n\n{trimmed_active}"),
+    }
+}
+
+fn sanitize_agent_message_for_display(content: &str) -> String {
+    strip_tagged_block(content, "<think>", "</think>")
+        .replace("<think>", "")
+        .replace("</think>", "")
+        .trim()
+        .to_string()
+}
+
+fn sanitize_agent_message_for_history(content: &str) -> String {
+    sanitize_agent_message_for_display(content)
+}
+
+fn strip_tagged_block(content: &str, open_tag: &str, close_tag: &str) -> String {
+    let mut output = content.to_string();
+    while let Some(start) = output.find(open_tag) {
+        let after_open = start + open_tag.len();
+        if let Some(end_rel) = output[after_open..].find(close_tag) {
+            let end = after_open + end_rel + close_tag.len();
+            output.replace_range(start..end, "");
+        } else {
+            output.replace_range(start..output.len(), "");
+            break;
+        }
+    }
+    output
 }
 
 fn build_session_title(text: &str) -> String {

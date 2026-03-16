@@ -17,28 +17,178 @@ interface ToolCallBlock {
   toolId: string;
   args?: Record<string, unknown>;
   output?: string;
-  status: "running" | "completed" | "error";
+  status: "running" | "completed" | "error" | "requested";
 }
-interface StreamBlock { text: string; toolCalls: ToolCallBlock[] }
+interface StreamBlock {
+  text: string;
+  toolCalls: ToolCallBlock[];
+  thoughtText: string;
+}
+
+const SERIALIZED_TOOL_BLOCK_RE = /\[Tool: ([^\]]+)\]\s*(?:\r?\n\[Result: ([\s\S]*?)\])?(?=(?:\r?\n){2}\[Tool: |\s*$)/g;
+const TAGGED_TOOL_BLOCK_RE = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|\[TOOL_CALL\]\s*([\s\S]*?)\s*\[\/TOOL_CALL\]|<(?:[\w-]+:)?tool_call[^>]*>\s*([\s\S]*?)\s*<\/(?:[\w-]+:)?tool_call>|(?:<)?minimax:tool_call\b[^>]*>\s*([\s\S]*?)\s*<\/tool>|(?:<)?minimax:tool_call\b\s*([\s\S]*?)\s*<\/tool>/g;
+
+function parseColonStyleArgs(raw: string) {
+  const args: Record<string, unknown> = {};
+  const pattern = /([a-zA-Z0-9_-]+)\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s<>,}]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(raw)) !== null) {
+    args[match[1]] = match[2] ?? match[3] ?? match[4] ?? "";
+  }
+  return args;
+}
+
+function parseInlineToolCommand(raw: string) {
+  const normalized = raw
+    .replace(/<id\b[^>]*>[\s\S]*?<\/id>/gi, " ")
+    .replace(/<\/?[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+  const [name, ...rest] = normalized.split(/\s+/);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    args: parseColonStyleArgs(rest.join(" ")),
+  };
+}
+
+function parseEmbeddedToolPayload(raw: string) {
+  const minimaxInline = raw.match(/(?:<)?minimax:tool_call\b[^>]*>([\s\S]*?)<\/tool>/i)?.[1] || "";
+  if (minimaxInline) {
+    return parseInlineToolCommand(minimaxInline);
+  }
+
+  const toolCodeBody = raw.match(/<tool_code\b[^>]*>([\s\S]*?)<\/tool_code>/i)?.[1] || "";
+  if (toolCodeBody) {
+    return parseInlineToolCommand(toolCodeBody);
+  }
+
+  const toolBody = raw.match(/<tool\b[^>]*>([\s\S]*?)<\/tool>/i)?.[1] || "";
+  if (toolBody) {
+    return parseInlineToolCommand(toolBody);
+  }
+
+  const xmlInvokeName =
+    raw.match(/<invoke\b[^>]*\bname="([^"]+)"/i)?.[1] ||
+    raw.match(/<tool\b[^>]*\bname="([^"]+)"/i)?.[1] ||
+    "";
+  if (xmlInvokeName) {
+    const invokeTag = raw.match(/<(?:invoke|tool)\b([^>]*)>/i)?.[1] || "";
+    const args: Record<string, unknown> = {};
+    const attrPattern = /([a-zA-Z0-9_:-]+)="([^"]*)"/g;
+    let attrMatch: RegExpExecArray | null;
+    while ((attrMatch = attrPattern.exec(invokeTag)) !== null) {
+      if (attrMatch[1] !== "name") {
+        args[attrMatch[1]] = attrMatch[2];
+      }
+    }
+    return { name: xmlInvokeName, args };
+  }
+
+  const customName =
+    raw.match(/(?:tool|name|toolName)\s*=>\s*"([^"]+)"/i)?.[1] ||
+    raw.match(/(?:tool|name|toolName)\s*:\s*"([^"]+)"/i)?.[1] ||
+    "";
+  if (customName) {
+    const argsBlock =
+      raw.match(/args(?:uments)?\s*=>\s*\{([\s\S]*?)\}\s*$/i)?.[1] ||
+      raw.match(/args(?:uments)?\s*:\s*\{([\s\S]*?)\}\s*$/i)?.[1] ||
+      "";
+    const args: Record<string, unknown> = {};
+    const shellStyle = /--([a-zA-Z0-9_-]+)(?:\s+(?:"([^"]*)"|'([^']*)'|([^\s}]+)))?/g;
+    let shellMatch: RegExpExecArray | null;
+    while ((shellMatch = shellStyle.exec(argsBlock)) !== null) {
+      args[shellMatch[1]] = shellMatch[2] ?? shellMatch[3] ?? shellMatch[4] ?? true;
+    }
+    return { name: customName, args };
+  }
+
+  try {
+    const payload = JSON.parse(raw);
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const name =
+      (typeof record.name === "string" && record.name) ||
+      (typeof record.tool === "string" && record.tool) ||
+      (typeof record.toolName === "string" && record.toolName);
+    if (!name) {
+      return null;
+    }
+
+    const rawArgs = record.arguments ?? record.args ?? record.input ?? record.parameters ?? {};
+    const args = (() => {
+      if (rawArgs && typeof rawArgs === "object") {
+        return rawArgs as Record<string, unknown>;
+      }
+      if (typeof rawArgs === "string" && rawArgs.trim()) {
+        try {
+          const parsed = JSON.parse(rawArgs);
+          return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+        } catch {
+          return {};
+        }
+      }
+      return {};
+    })();
+    return { name, args };
+  } catch {
+    return parseInlineToolCommand(raw);
+  }
+}
 
 function parseStreamBlocks(raw: string): StreamBlock {
-  const re = /\[Tool: ([^\]]+)\]\n(?:\[Result: ([\s\S]*?)\]\n)?/g;
   const toolCalls: ToolCallBlock[] = [];
+  const thoughtText = Array.from(raw.matchAll(/<think>\s*([\s\S]*?)\s*<\/think>/g))
+    .map((match) => match[1]?.trim() ?? "")
+    .filter((value) => value.length > 0)
+    .join("\n\n");
+
   let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    const output = m[2]?.trim();
+  while ((m = SERIALIZED_TOOL_BLOCK_RE.exec(raw)) !== null) {
+    if (m[1]) {
+      const output = m[2]?.trim();
+      toolCalls.push({
+        id: `${m.index}-${m[1]}`,
+        toolId: m[1],
+        output,
+        status: output ? "completed" : "running",
+      });
+    }
+  }
+
+  while ((m = TAGGED_TOOL_BLOCK_RE.exec(raw)) !== null) {
+    const embedded = parseEmbeddedToolPayload(m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "");
+    if (!embedded) {
+      continue;
+    }
     toolCalls.push({
-      id: `${m.index}-${m[1]}`,
-      toolId: m[1],
-      output,
-      status: output ? "completed" : "running",
+      id: `${m.index}-${embedded.name}`,
+      toolId: embedded.name,
+      args: embedded.args,
+      status: "requested",
     });
   }
   const text = raw
-    .replace(/\[Tool: [^\]]+\]\n(?:\[Result: [\s\S]*?\]\n)?/g, "")
+    .replace(SERIALIZED_TOOL_BLOCK_RE, "")
+    .replace(TAGGED_TOOL_BLOCK_RE, "")
+    .replace(/<\/(?:[\w-]+:)?tool_call>/g, "")
+    .replace(/(?:<)?minimax:tool_call\b[^>]*>/g, "")
+    .replace(/<\/tool>/g, "")
+    .replace(/<\/?tool_code\b[^>]*>/g, "")
+    .replace(/<\/?id\b[^>]*>/g, "")
+    .replace(/<think>\s*[\s\S]*?\s*<\/think>/g, "")
+    .replace(/<\/?think>/g, "")
     .replace(/\[Error: [\s\S]*?\]\n?/g, "")
     .trim();
-  return { text, toolCalls };
+  return { text, toolCalls, thoughtText };
 }
 
 function toToolCallBlock(call: StreamToolCall): ToolCallBlock {
@@ -58,6 +208,8 @@ function summarizeToolCall(call: ToolCallBlock) {
     }
     const candidates = [
       call.args.filePath,
+      call.args.file_path,
+      call.args.uri,
       call.args.path,
       call.args.query,
       call.args.pattern,
@@ -68,62 +220,37 @@ function summarizeToolCall(call: ToolCallBlock) {
 
   const target = firstStringArg.length > 36 ? `${firstStringArg.slice(0, 36)}…` : firstStringArg;
   const prefix = call.status === "running" ? "正在" : call.status === "error" ? "失败" : "已完成";
+  const requestedPrefix = call.status === "requested" ? "请求" : prefix;
 
   switch (call.toolId) {
     case "tool_search":
-      return `${prefix}分析可用工具`;
+      return `${requestedPrefix}分析可用工具`;
     case "list":
     case "list_files":
-      return `${prefix}查看项目结构${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}查看项目结构${target ? ` · ${target}` : ""}`;
     case "read":
     case "read_section":
-      return `${prefix}读取文件${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}读取文件${target ? ` · ${target}` : ""}`;
     case "list_sections":
-      return `${prefix}提取章节结构`;
+      return `${requestedPrefix}提取章节结构${target ? ` · ${target}` : ""}`;
     case "grep":
     case "search_project":
-      return `${prefix}搜索内容${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}搜索内容${target ? ` · ${target}` : ""}`;
     case "glob":
-      return `${prefix}查找匹配文件${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}查找匹配文件${target ? ` · ${target}` : ""}`;
     case "read_bib_entries":
-      return `${prefix}读取参考文献`;
+      return `${requestedPrefix}读取参考文献`;
     case "edit":
     case "write":
     case "apply_patch":
     case "apply_text_patch":
     case "insert_at_line":
-      return `${prefix}修改文件${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}修改文件${target ? ` · ${target}` : ""}`;
     case "bash":
-      return `${prefix}执行命令${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}执行命令${target ? ` · ${target}` : ""}`;
     default:
-      return `${prefix}调用 ${call.toolId}${target ? ` · ${target}` : ""}`;
+      return `${requestedPrefix}调用 ${call.toolId}${target ? ` · ${target}` : ""}`;
   }
-}
-
-function ToolStatusRow({ call }: { call: ToolCallBlock }) {
-  const summary = summarizeToolCall(call);
-  const preview = call.output?.trim()
-    ? call.output.trim().split("\n").find((line) => line.trim().length > 0) ?? ""
-    : "";
-  const shortPreview = preview.length > 88 ? `${preview.slice(0, 88)}…` : preview;
-
-  return (
-    <div className={`ag-tool-status-row ag-tool-status-row--${call.status}`}>
-      <span className="ag-tool-status-icon">
-        {call.status === "running" ? (
-          <span className="ag-tool-spinner" />
-        ) : call.status === "error" ? (
-          "!"
-        ) : (
-          "·"
-        )}
-      </span>
-      <span className="ag-tool-status-text">{summary}</span>
-      {call.status !== "running" && shortPreview && (
-        <span className="ag-tool-status-preview">{shortPreview}</span>
-      )}
-    </div>
-  );
 }
 
 /* ─── Tool call card ──────────────────────────────────── */
@@ -131,6 +258,12 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
   const [open, setOpen] = useState(false);
   const isRunning = call.status === "running";
   const isError = call.status === "error";
+  const isRequested = call.status === "requested";
+  const summary = summarizeToolCall(call);
+  const preview = call.output?.trim()
+    ? call.output.trim().split("\n").find((line) => line.trim().length > 0) ?? ""
+    : "";
+  const shortPreview = preview.length > 92 ? `${preview.slice(0, 92)}…` : preview;
 
   // Extract a short arg summary for inline display
   const argSummary = (() => {
@@ -147,6 +280,10 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
         <span className="ag-tool-icon">
           {isRunning ? (
             <span className="ag-tool-spinner" />
+          ) : isRequested ? (
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
+              <path d="M3 8h10"/><path d="m9 4 4 4-4 4"/>
+            </svg>
           ) : isError ? (
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
               <circle cx="8" cy="8" r="7"/><path d="M8 5v4M8 11v.5"/>
@@ -157,8 +294,10 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
             </svg>
           )}
         </span>
-        <span className="ag-tool-name">{call.toolId}</span>
-        {argSummary && <span className="ag-tool-arg">{argSummary}</span>}
+        <span className="ag-tool-name">{summary}</span>
+        <span className={`ag-tool-pill ag-tool-pill--${call.status}`}>{call.toolId}</span>
+        {argSummary && !shortPreview && <span className="ag-tool-arg">{argSummary}</span>}
+        {shortPreview && !open && <span className="ag-tool-preview">{shortPreview}</span>}
         {(call.output || call.args) && (
           <span className="ag-tool-chevron">{open ? "▾" : "▸"}</span>
         )}
@@ -177,6 +316,45 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
   );
 }
 
+function formatThoughtDuration(durationMs: number) {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  return `${seconds}s`;
+}
+
+function ThoughtDisclosure({
+  text,
+  active,
+  durationMs,
+}: {
+  text: string;
+  active: boolean;
+  durationMs: number;
+}) {
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return (
+    <details
+      key={`${active ? "live" : "done"}-${durationMs}-${trimmed.length}`}
+      className={`ag-thought-card${active ? " ag-thought-card--live" : ""}`}
+      open={active}
+    >
+      <summary className="ag-thought-toggle">
+        <span className="ag-thought-chevron" aria-hidden="true">▸</span>
+        <span className="ag-thought-label">
+          Thought{durationMs > 0 ? ` for ${formatThoughtDuration(durationMs)}` : ""}
+        </span>
+      </summary>
+      <div className={`ag-thought-body${active ? " ag-thought-body--live" : ""}`}>
+        <div className="ag-thought-text">{trimmed}</div>
+      </div>
+    </details>
+  );
+}
+
 /* ─── User message ────────────────────────────────────── */
 function UserMessage({ msg }: { msg: AgentMessage }) {
   return (
@@ -191,6 +369,8 @@ function AssistantMessage({ msg, streaming }: {
   msg?: AgentMessage;
   streaming?: {
     thinkingText?: string;
+    thinkingHistoryText?: string;
+    thinkingDurationMs?: number;
     text: string;
     toolCalls?: ToolCallBlock[];
     streamError?: string;
@@ -202,6 +382,8 @@ function AssistantMessage({ msg, streaming }: {
   const toolCalls = streaming?.toolCalls ?? parsed.toolCalls;
   const streamError = streaming?.streamError;
   const thinkingText = streaming?.thinkingText?.trim() ?? "";
+  const thinkingHistoryText = streaming?.thinkingHistoryText?.trim() ?? "";
+  const thoughtText = thinkingText || thinkingHistoryText || parsed.thoughtText;
   const runningToolCalls = toolCalls.filter((call) => call.status === "running").length;
   const streamStatusLabel = streaming
     ? streamError
@@ -217,7 +399,14 @@ function AssistantMessage({ msg, streaming }: {
 
   return (
     <div className="ag-assistant-row">
-      {streaming && (
+      {thoughtText && (
+        <ThoughtDisclosure
+          text={thoughtText}
+          active={Boolean(thinkingText)}
+          durationMs={streaming?.thinkingDurationMs ?? 0}
+        />
+      )}
+      {streaming && (!thoughtText || streamStatusLabel !== "正在思考") && (
         <div className="ag-stream-status" aria-live="polite">
           <span className="ag-stream-status-dots" aria-hidden="true">
             <span className="ag-thinking-dot" />
@@ -234,7 +423,7 @@ function AssistantMessage({ msg, streaming }: {
         </div>
       )}
       {toolCalls.map((c, i) => (
-        streaming ? <ToolStatusRow key={i} call={c} /> : <ToolCallCard key={i} call={c} />
+        <ToolCallCard key={c.id || i} call={c} />
       ))}
       {!clean && !thinkingText && toolCalls.length === 0 && !streaming && (
         <div className="ag-assistant-text ag-thinking">
@@ -480,6 +669,8 @@ export interface ChatPanelProps {
   onApplyPatch: () => void;
   onDismissPatch: () => void;
   streamThinkingText?: string;
+  streamThinkingHistoryText?: string;
+  streamThinkingDurationMs?: number;
   streamText?: string;
   streamToolCalls?: StreamToolCall[];
   streamError?: string;
@@ -495,6 +686,8 @@ export function ChatPanel({
   onRunAgent, onSendMessage, onCancelAgent,
   pendingPatchSummary, pendingPatchDiff, onApplyPatch, onDismissPatch,
   streamThinkingText,
+  streamThinkingHistoryText,
+  streamThinkingDurationMs,
   streamText, streamToolCalls, streamError, isStreaming,
   skills, onToggleSkill,
   usageRecords, projectTree,
@@ -571,10 +764,6 @@ export function ChatPanel({
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
   }, [isSessionPickerOpen]);
-
-  useEffect(() => {
-    setIsSessionPickerOpen(false);
-  }, [activeSessionId]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
@@ -823,6 +1012,8 @@ export function ChatPanel({
           <AssistantMessage
             streaming={{
               thinkingText: streamThinkingText,
+              thinkingHistoryText: streamThinkingHistoryText,
+              thinkingDurationMs: streamThinkingDurationMs,
               text: streamText,
               toolCalls: normalizedStreamToolCalls,
               streamError,

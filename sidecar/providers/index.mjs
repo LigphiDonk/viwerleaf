@@ -1,4 +1,5 @@
 import { createAnthropicProvider } from "./anthropic.mjs";
+import { createGenericProvider } from "./generic.mjs";
 import { createOpenAIProvider } from "./openai.mjs";
 
 export function loadProvider(providerConfig) {
@@ -7,8 +8,9 @@ export function loadProvider(providerConfig) {
     case "openrouter":
     case "deepseek":
       return createOpenAIProvider(providerConfig);
-    case "anthropic":
     case "custom":
+      return createGenericProvider(providerConfig);
+    case "anthropic":
     case "google":
     default:
       return createAnthropicProvider(providerConfig);

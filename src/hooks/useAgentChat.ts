@@ -31,6 +31,47 @@ function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
   }
 }
 
+function serializeStreamToolCalls(toolCalls: StreamToolCall[]) {
+  return toolCalls
+    .map((call) => {
+      const resultBlock = call.output ? `[Result: ${call.output}]\n` : "";
+      return `[Tool: ${call.toolId}]\n${resultBlock}`.trimEnd();
+    })
+    .join("\n\n");
+}
+
+function buildAssistantSnapshotContent({
+  thinkingText,
+  text,
+  toolCalls,
+}: {
+  thinkingText: string;
+  text: string;
+  toolCalls: StreamToolCall[];
+}) {
+  const parts: string[] = [];
+  const trimmedThinking = thinkingText.trim();
+  const trimmedText = text.trim();
+  const serializedToolCalls = serializeStreamToolCalls(toolCalls);
+
+  if (trimmedThinking) {
+    parts.push(`<think>\n${trimmedThinking}\n</think>`);
+  }
+  if (trimmedText) {
+    parts.push(trimmedText);
+  }
+  if (serializedToolCalls) {
+    parts.push(serializedToolCalls);
+  }
+
+  return parts.join("\n\n").trim();
+}
+
+function mergeThinkingSegments(historyText: string, currentText: string) {
+  const parts = [historyText.trim(), currentText.trim()].filter((value, index, all) => value && all.indexOf(value) === index);
+  return parts.join("\n\n");
+}
+
 interface UseAgentChatParams {
   snapshot: WorkspaceSnapshot | null;
   activeFile: ProjectFile | null;
@@ -50,6 +91,8 @@ export interface AgentChatState {
   activeProfile: AgentProfile | null;
   isStreaming: boolean;
   streamThinkingText: string;
+  streamThinkingHistoryText: string;
+  streamThinkingDurationMs: number;
   streamText: string;
   streamToolCalls: StreamToolCall[];
   streamError: string;
@@ -69,10 +112,7 @@ export function useAgentChat({
   snapshot,
   activeFile,
   selectedText,
-  cursorLine: _cursorLine,
   replaceFileContent,
-  addDirtyPath: _addDirtyPath,
-  refreshWorkspace: _refreshWorkspace,
 }: UseAgentChatParams): AgentChatState {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
@@ -81,6 +121,8 @@ export function useAgentChat({
   const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("chat");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamThinkingText, setStreamThinkingText] = useState("");
+  const [streamThinkingHistoryText, setStreamThinkingHistoryText] = useState("");
+  const [streamThinkingDurationMs, setStreamThinkingDurationMs] = useState(0);
   const [streamText, setStreamText] = useState("");
   const [streamToolCalls, setStreamToolCalls] = useState<StreamToolCall[]>([]);
   const [streamError, setStreamError] = useState("");
@@ -91,6 +133,7 @@ export function useAgentChat({
   const streamBufferRef = useRef("");
   const streamFlushTimerRef = useRef<number | null>(null);
   const streamThinkingRef = useRef("");
+  const streamThinkingStartedAtRef = useRef<number | null>(null);
   const streamToolSeqRef = useRef(0);
   const currentStreamSessionIdRef = useRef("");
   const didBootstrapRef = useRef(false);
@@ -157,22 +200,35 @@ export function useAgentChat({
     if (!delta) {
       return;
     }
+    if (streamThinkingStartedAtRef.current === null) {
+      streamThinkingStartedAtRef.current = Date.now();
+      setStreamThinkingDurationMs(0);
+    }
     streamThinkingRef.current += delta;
     setStreamThinkingText(streamThinkingRef.current);
+    setStreamThinkingHistoryText(streamThinkingRef.current);
+    setStreamThinkingDurationMs(Date.now() - streamThinkingStartedAtRef.current);
   });
 
   const clearThinkingText = useEffectEvent(() => {
     streamThinkingRef.current = "";
+    streamThinkingStartedAtRef.current = null;
     setStreamThinkingText("");
   });
 
   const commitThinkingText = useEffectEvent(() => {
+    if (streamThinkingRef.current && streamThinkingStartedAtRef.current !== null) {
+      setStreamThinkingHistoryText(streamThinkingRef.current);
+      setStreamThinkingDurationMs(Date.now() - streamThinkingStartedAtRef.current);
+    }
     clearThinkingText();
   });
 
   const resetStreamState = useEffectEvent(() => {
     clearStreamBuffer();
     clearThinkingText();
+    setStreamThinkingHistoryText("");
+    setStreamThinkingDurationMs(0);
     setStreamText("");
     setStreamToolCalls([]);
     setStreamError("");
@@ -234,6 +290,30 @@ export function useAgentChat({
         profileId: activeProfileId,
         content: `Error: ${message}`,
         sessionId: activeSessionId || undefined,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  });
+
+  const appendInterruptedStreamMessage = useEffectEvent(() => {
+    const content = buildAssistantSnapshotContent({
+      thinkingText: mergeThinkingSegments(streamThinkingHistoryText, streamThinkingRef.current),
+      text: `${streamText}${streamBufferRef.current}`,
+      toolCalls: streamToolCalls,
+    });
+
+    if (!content) {
+      return;
+    }
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        profileId: activeProfileId,
+        content,
+        sessionId: currentStreamSessionIdRef.current || activeSessionId || undefined,
         timestamp: new Date().toISOString(),
       },
     ]);
@@ -363,8 +443,11 @@ export function useAgentChat({
           });
           break;
         case "error":
+          appendInterruptedStreamMessage();
           clearThinkingText();
+          clearStreamBuffer();
           setStreamError(chunk.message);
+          appendAssistantErrorMessage(chunk.message);
           flushStreamBuffer();
           setIsStreaming(false);
           stopStream();
@@ -408,8 +491,9 @@ export function useAgentChat({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("runAgent failed", error);
+      appendInterruptedStreamMessage();
       clearThinkingText();
-      flushStreamBuffer();
+      clearStreamBuffer();
       setStreamError(message);
       appendAssistantErrorMessage(message);
       stopStream();
@@ -503,8 +587,11 @@ export function useAgentChat({
           });
           break;
         case "error":
+          appendInterruptedStreamMessage();
           clearThinkingText();
+          clearStreamBuffer();
           setStreamError(chunk.message);
+          appendAssistantErrorMessage(chunk.message);
           flushStreamBuffer();
           setIsStreaming(false);
           stopStream();
@@ -548,8 +635,9 @@ export function useAgentChat({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("runAgent failed", error);
+      appendInterruptedStreamMessage();
       clearThinkingText();
-      flushStreamBuffer();
+      clearStreamBuffer();
       setStreamError(message);
       appendAssistantErrorMessage(message);
       stopStream();
@@ -566,6 +654,8 @@ export function useAgentChat({
     activeProfile,
     isStreaming,
     streamThinkingText,
+    streamThinkingHistoryText,
+    streamThinkingDurationMs,
     streamText,
     streamToolCalls,
     streamError,

@@ -1,4 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { randomUUID } from "node:crypto";
+
+import { consumeTextToolCalls, normalizeToolCallPayload } from "./tool-call.mjs";
 
 function stringifyContent(value) {
   if (typeof value === "string") {
@@ -152,6 +155,41 @@ export function createAnthropicProvider(config) {
 
       let currentToolBlock = null;
       let inThinking = false;
+      let textBuffer = "";
+      let taggedState = { mode: "text" };
+
+      function* drainTextBuffer(flush = false) {
+        const consumed = consumeTextToolCalls(textBuffer, { flush, state: taggedState });
+        textBuffer = consumed.remainder;
+        taggedState = consumed.state;
+        for (const event of consumed.events) {
+          if (event.type === "text" && event.text) {
+            yield { type: "text", text: event.text };
+            continue;
+          }
+          if (event.type === "thinking_start") {
+            yield { type: "thinking_start" };
+            continue;
+          }
+          if (event.type === "thinking" && event.text) {
+            yield { type: "thinking", text: event.text };
+            continue;
+          }
+          if (event.type === "thinking_end") {
+            yield { type: "thinking_end" };
+            continue;
+          }
+          if (event.type === "tool_call") {
+            yield {
+              type: "tool_call",
+              id: randomUUID(),
+              name: event.name,
+              args: event.args,
+              source: event.source || "tagged",
+            };
+          }
+        }
+      }
 
       for await (const event of stream) {
         if (event.type === "message_start" && event.message?.usage) {
@@ -160,6 +198,7 @@ export function createAnthropicProvider(config) {
           inThinking = true;
           yield { type: "thinking_start" };
         } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+          yield* drainTextBuffer(true);
           currentToolBlock = {
             id: event.content_block.id,
             name: event.content_block.name,
@@ -169,7 +208,8 @@ export function createAnthropicProvider(config) {
           if (event.delta?.type === "thinking_delta") {
             yield { type: "thinking", text: event.delta.thinking };
           } else if (event.delta?.type === "text_delta") {
-            yield { type: "text", text: event.delta.text };
+            textBuffer += event.delta.text;
+            yield* drainTextBuffer(false);
           } else if (event.delta?.type === "input_json_delta" && currentToolBlock) {
             currentToolBlock.inputJson += event.delta.partial_json;
           }
@@ -177,23 +217,24 @@ export function createAnthropicProvider(config) {
           inThinking = false;
           yield { type: "thinking_end" };
         } else if (event.type === "content_block_stop" && currentToolBlock) {
-          let parsedArgs = {};
-          try {
-            parsedArgs = JSON.parse(currentToolBlock.inputJson || "{}");
-          } catch {
-            parsedArgs = {};
-          }
+          const normalized = normalizeToolCallPayload({
+            name: currentToolBlock.name,
+            arguments: currentToolBlock.inputJson || "{}",
+          });
           yield {
             type: "tool_call",
             id: currentToolBlock.id,
-            name: currentToolBlock.name,
-            args: parsedArgs,
+            name: normalized?.name || currentToolBlock.name,
+            args: normalized?.args || {},
+            source: "native",
           };
           currentToolBlock = null;
         } else if (event.type === "message_delta" && event.usage) {
           totalOutputTokens += event.usage.output_tokens || 0;
         }
       }
+
+      yield* drainTextBuffer(true);
     },
 
     getUsage() {

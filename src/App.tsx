@@ -750,6 +750,8 @@ function App() {
     activeProfile,
     isStreaming,
     streamThinkingText,
+    streamThinkingHistoryText,
+    streamThinkingDurationMs,
     streamText,
     streamToolCalls,
     streamError,
@@ -2920,6 +2922,8 @@ function App() {
               onActivateProvider={(id) => void handleActivateProvider(id)}
               onToggleSkill={handleToggleSkill}
               streamThinkingText={streamThinkingText}
+              streamThinkingHistoryText={streamThinkingHistoryText}
+              streamThinkingDurationMs={streamThinkingDurationMs}
               streamText={streamText}
               streamToolCalls={streamToolCalls}
               streamError={streamError}
