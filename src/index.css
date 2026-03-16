@@ -1992,6 +1992,12 @@ button {
 .cm-scroller {
   font-family: var(--mono);
   font-size: 14px;
+  overflow-x: hidden;
+}
+
+.cm-lineWrapping {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .cm-gutters {

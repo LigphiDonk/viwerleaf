@@ -276,6 +276,7 @@ function EditorPaneInner({
 
     return [
       latex(),
+      EditorView.lineWrapping,
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
