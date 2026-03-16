@@ -2389,10 +2389,9 @@ button {
 
 .ag-session-bar {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 10px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 16px 6px;
 }
 
 .ag-session-actions {
@@ -2404,23 +2403,20 @@ button {
 .ag-session-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 14px;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   border-radius: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
-  font-size: 12.5px;
-  font-weight: 600;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: transform var(--transition-fast), background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .ag-session-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: #ffffff;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(15, 23, 42, 0.08);
   color: var(--text-primary);
 }
 
@@ -2430,67 +2426,17 @@ button {
 }
 
 .ag-session-btn--primary {
-  background: rgba(15, 118, 110, 0.1);
-  color: var(--accent-primary);
-  border-color: rgba(15, 118, 110, 0.12);
-}
-
-.ag-session-btn--primary:hover:not(:disabled) {
-  background: rgba(15, 118, 110, 0.14);
-  color: var(--accent-primary-hover);
-}
-
-.ag-session-count {
-  min-width: 20px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  background: rgba(15, 118, 110, 0.1);
-  color: var(--accent-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.ag-session-current {
-  min-width: 0;
-  max-width: 46%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 3px 0 0;
-  color: var(--text-secondary);
-  text-align: right;
-  transition: color var(--transition-fast);
-}
-
-.ag-session-current:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-.ag-session-current:disabled {
-  cursor: default;
+.ag-session-btn--primary:hover:not(:disabled) {
+  color: var(--text-primary);
 }
 
-.ag-session-current-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.ag-session-current-title {
-  max-width: 100%;
-  font-size: 13px;
-  font-weight: 600;
-  color: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ag-session-btn--active {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(15, 118, 110, 0.14);
+  color: var(--accent-primary);
 }
 
 .ag-session-picker-backdrop {
@@ -2714,7 +2660,7 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px 16px 12px;
+  padding: 8px 16px 12px;
   scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
@@ -2763,24 +2709,28 @@ button {
 /* ─── User row ──────────────────────────────────────────── */
 .ag-user-row {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 16px;
+  width: min(100%, 760px);
+  margin: 0 auto 18px;
+  justify-content: flex-start;
 }
 .ag-user-bubble {
-  max-width: 78%;
-  background: var(--accent-primary);
-  border-radius: 16px 16px 4px 16px;
-  padding: 10px 14px;
+  max-width: min(88%, 560px);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 20px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
   font-size: 13.5px;
-  color: #fff;
-  line-height: 1.55;
+  color: var(--text-primary);
+  line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 /* ─── Assistant row ─────────────────────────────────────── */
 .ag-assistant-row {
-  margin-bottom: 18px;
+  width: min(100%, 760px);
+  margin: 0 auto 18px;
 }
 .ag-assistant-text {
   font-size: 13.5px;
@@ -2859,13 +2809,29 @@ button {
   40% { opacity: 1; transform: scale(1); }
 }
 
-.ag-assistant-thinking-copy {
-  margin-bottom: 8px;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--text-tertiary);
-  opacity: 0.88;
-  white-space: pre-wrap;
+.ag-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  color: var(--text-secondary);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.ag-stream-status-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ag-stream-status-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 /* Streaming cursor */
@@ -3398,18 +3364,11 @@ button {
 
 @media (max-width: 720px) {
   .ag-session-bar {
-    flex-direction: column;
-    align-items: stretch;
+    padding-top: 12px;
   }
 
   .ag-session-actions {
-    flex-wrap: wrap;
-  }
-
-  .ag-session-current {
-    align-items: flex-start;
-    max-width: none;
-    text-align: left;
+    justify-content: flex-end;
   }
 
   .ag-session-picker-backdrop {
@@ -3442,6 +3401,15 @@ button {
   .ag-session-item-meta {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .ag-user-row,
+  .ag-assistant-row {
+    width: 100%;
+  }
+
+  .ag-user-bubble {
+    max-width: 100%;
   }
 }
 

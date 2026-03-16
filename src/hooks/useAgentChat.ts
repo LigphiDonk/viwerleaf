@@ -109,18 +109,40 @@ export function useAgentChat({
     setStreamText((current) => current + delta);
   });
 
+  const scheduleStreamFlush = useEffectEvent(() => {
+    if (streamFlushTimerRef.current !== null) {
+      return;
+    }
+
+    const tick = () => {
+      const queued = streamBufferRef.current;
+      if (!queued) {
+        streamFlushTimerRef.current = null;
+        return;
+      }
+
+      const batchSize = queued.length > 96
+        ? 8
+        : queued.length > 48
+          ? 4
+          : queued.length > 12
+            ? 2
+            : 1;
+      const delta = queued.slice(0, batchSize);
+      streamBufferRef.current = queued.slice(batchSize);
+      setStreamText((current) => current + delta);
+      streamFlushTimerRef.current = window.setTimeout(tick, 22);
+    };
+
+    streamFlushTimerRef.current = window.setTimeout(tick, 22);
+  });
+
   const queueStreamDelta = useEffectEvent((delta: string) => {
     if (!delta) {
       return;
     }
     streamBufferRef.current += delta;
-    if (streamFlushTimerRef.current !== null) {
-      return;
-    }
-    streamFlushTimerRef.current = window.setTimeout(() => {
-      streamFlushTimerRef.current = null;
-      flushStreamBuffer();
-    }, 16);
+    scheduleStreamFlush();
   });
 
   const clearStreamBuffer = useEffectEvent(() => {
@@ -145,11 +167,6 @@ export function useAgentChat({
   });
 
   const commitThinkingText = useEffectEvent(() => {
-    const content = streamThinkingRef.current;
-    if (!content) {
-      return;
-    }
-    setStreamText((current) => current + content);
     clearThinkingText();
   });
 
@@ -330,9 +347,11 @@ export function useAgentChat({
           commitThinkingText();
           break;
         case "tool_call_start":
+          flushStreamBuffer();
           pushStreamToolStart(chunk.toolId, chunk.args);
           break;
         case "tool_call_result":
+          flushStreamBuffer();
           pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
           break;
         case "patch":
@@ -468,9 +487,11 @@ export function useAgentChat({
           commitThinkingText();
           break;
         case "tool_call_start":
+          flushStreamBuffer();
           pushStreamToolStart(chunk.toolId, chunk.args);
           break;
         case "tool_call_result":
+          flushStreamBuffer();
           pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
           break;
         case "patch":

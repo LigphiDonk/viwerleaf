@@ -202,22 +202,41 @@ function AssistantMessage({ msg, streaming }: {
   const toolCalls = streaming?.toolCalls ?? parsed.toolCalls;
   const streamError = streaming?.streamError;
   const thinkingText = streaming?.thinkingText?.trim() ?? "";
+  const runningToolCalls = toolCalls.filter((call) => call.status === "running").length;
+  const streamStatusLabel = streaming
+    ? streamError
+      ? "响应出错"
+      : clean
+        ? "正在生成"
+        : runningToolCalls > 0
+          ? "正在处理"
+          : thinkingText
+            ? "正在思考"
+            : "已发送"
+    : "";
 
   return (
     <div className="ag-assistant-row">
-      {thinkingText && (
-        <div className="ag-assistant-thinking-copy">{thinkingText}</div>
+      {streaming && (
+        <div className="ag-stream-status" aria-live="polite">
+          <span className="ag-stream-status-dots" aria-hidden="true">
+            <span className="ag-thinking-dot" />
+            <span className="ag-thinking-dot" />
+            <span className="ag-thinking-dot" />
+          </span>
+          <span className="ag-stream-status-label">{streamStatusLabel}</span>
+        </div>
       )}
-      {toolCalls.map((c, i) => (
-        streaming ? <ToolStatusRow key={i} call={c} /> : <ToolCallCard key={i} call={c} />
-      ))}
       {streamError && <div className="ag-assistant-error">Error: {streamError}</div>}
       {clean && (
         <div className="ag-assistant-text">
           <ReactMarkdown>{clean}</ReactMarkdown>
         </div>
       )}
-      {!clean && !thinkingText && toolCalls.length === 0 && (
+      {toolCalls.map((c, i) => (
+        streaming ? <ToolStatusRow key={i} call={c} /> : <ToolCallCard key={i} call={c} />
+      ))}
+      {!clean && !thinkingText && toolCalls.length === 0 && !streaming && (
         <div className="ag-assistant-text ag-thinking">
           <span className="ag-thinking-dot" />
           <span className="ag-thinking-dot" />
@@ -674,37 +693,28 @@ export function ChatPanel({
             className="ag-session-btn ag-session-btn--primary"
             onClick={onNewSession}
             disabled={isStreaming}
+            aria-label="新对话"
+            title="新对话"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            <span>新对话</span>
           </button>
           <button
             type="button"
-            className="ag-session-btn"
+            className={`ag-session-btn${activeSession ? " ag-session-btn--active" : ""}`}
             onClick={handleOpenSessionPicker}
             disabled={isStreaming || sessions.length === 0}
+            aria-label="历史对话"
+            title={activeSession ? `历史对话 · ${getSessionTitle(activeSession)}` : "历史对话"}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" width="15" height="15">
-              <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H9l-5 4V6.5Z" />
+              <path d="M12 8v5l3 2" />
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
             </svg>
-            <span>历史对话</span>
-            <span className="ag-session-count">{sessions.length}</span>
           </button>
         </div>
-        {activeSession && (
-          <button
-            type="button"
-            className="ag-session-current"
-            onClick={handleOpenSessionPicker}
-            disabled={isStreaming || sessions.length === 0}
-            title={getSessionTitle(activeSession)}
-          >
-            <span className="ag-session-current-label">当前对话</span>
-            <span className="ag-session-current-title">{getSessionTitle(activeSession)}</span>
-          </button>
-        )}
       </div>
 
       {isSessionPickerOpen && (

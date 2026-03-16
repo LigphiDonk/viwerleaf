@@ -2,6 +2,8 @@ use std::path::Path;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::sync::{LazyLock, Mutex};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use serde::{Deserialize, Serialize};
 use tauri::menu::{
@@ -21,6 +23,8 @@ const MENU_AUTO_SAVE: &str = "viewerleaf.file.auto-save";
 const MENU_COMPILE_ON_SAVE: &str = "viewerleaf.file.compile-on-save";
 const MENU_ACTION_EVENT: &str = "app:menu-action";
 const MENU_RECENT_PREFIX: &str = "viewerleaf.file.recent::";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +194,9 @@ pub fn launch_workspace_window(root_path: Option<&str>) -> anyhow::Result<()> {
     } else {
         command.arg("--empty-window");
     }
+
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
 
     command.spawn()?;
     Ok(())

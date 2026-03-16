@@ -20,6 +20,10 @@ function slugify(name: string) {
     .replace(/^-|-$/g, "") || `user-${Date.now()}`;
 }
 
+function encodeDevTokenName(name: string) {
+  return encodeURIComponent(name).replace(/%20/g, "+");
+}
+
 export function CollabLoginModal({
   currentSession,
   preserveUserId = true,
@@ -36,7 +40,7 @@ export function CollabLoginModal({
     const userId = preserveUserId && currentSession?.userId
       ? currentSession.userId
       : slugify(trimmedName);
-    const token = `dev:${userId}:${trimmedName}`;
+    const token = `dev:${userId}:${encodeDevTokenName(trimmedName)}`;
     onSave({
       token,
       userId,

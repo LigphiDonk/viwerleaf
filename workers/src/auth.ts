@@ -27,7 +27,8 @@ function parseDevToken(token: string | null): AuthenticatedUser | null {
   if (token.startsWith("dev:")) {
     const [, rawId = "dev-user", rawName = "ViewerLeaf Dev"] = token.split(":");
     const id = rawId.trim() || "dev-user";
-    const name = rawName.trim() || "ViewerLeaf Dev";
+    const encodedName = rawName.trim() || "ViewerLeaf%20Dev";
+    const name = decodeDevTokenName(encodedName);
     return {
       id,
       email: `${id}@viewerleaf.dev`,
@@ -37,6 +38,15 @@ function parseDevToken(token: string | null): AuthenticatedUser | null {
   }
 
   return null;
+}
+
+function decodeDevTokenName(value: string) {
+  try {
+    const decoded = decodeURIComponent(value.replace(/\+/g, "%20")).trim();
+    return decoded || "ViewerLeaf Dev";
+  } catch {
+    return value.trim() || "ViewerLeaf Dev";
+  }
 }
 
 export async function verifyRequestAuth(request: Request, env: WorkerEnv): Promise<AuthenticatedUser> {
@@ -78,4 +88,3 @@ export function corsHeaders(origin = "*") {
     "access-control-allow-headers": "authorization,content-type",
   };
 }
-

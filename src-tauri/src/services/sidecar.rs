@@ -2,32 +2,41 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use anyhow::{bail, Context, Result};
 
 use crate::state::AppState;
 
 const SIDECAR_ENTRY: &str = "index.mjs";
 const NODE_ENV_KEY: &str = "VIEWERLEAF_NODE_PATH";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn spawn_sidecar(state: &AppState, command: &str, payload: &str) -> Result<Child> {
     let node = resolve_node_binary()?;
     let sidecar_entry = resolve_sidecar_entry(state)?;
 
-    let mut child = Command::new(&node)
+    let mut process = Command::new(&node);
+    process
         .arg(&sidecar_entry)
         .arg(command)
         .arg("--stdin-payload")
         .current_dir(&state.sidecar_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .with_context(|| {
-            format!(
-                "failed to spawn sidecar `{command}` with node {}",
-                node.to_string_lossy()
-            )
-        })?;
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    process.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = process.spawn().with_context(|| {
+        format!(
+            "failed to spawn sidecar `{command}` with node {}",
+            node.to_string_lossy()
+        )
+    })?;
 
     write_payload(&mut child, payload)?;
 
