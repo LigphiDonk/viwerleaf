@@ -147,10 +147,14 @@ export async function readBlobSyncBaseline(
       hashes?: Record<string, unknown>;
     };
     const versions = new Map(
-      Object.entries(parsed.versions ?? {}).filter(([, v]) => typeof v === "number") as [string, number][],
+      Object.entries(parsed.versions ?? {})
+        .filter(([, v]) => typeof v === "number")
+        .map(([k, v]) => [k.replaceAll("\\", "/"), v]) as [string, number][],
     );
     const hashes = new Map(
-      Object.entries(parsed.hashes ?? {}).filter(([, v]) => typeof v === "string") as [string, string][],
+      Object.entries(parsed.hashes ?? {})
+        .filter(([, v]) => typeof v === "string")
+        .map(([k, v]) => [k.replaceAll("\\", "/"), v]) as [string, string][],
     );
     return { versions, hashes };
   } catch {

@@ -210,7 +210,7 @@ function collectImagePaths(nodes: WorkspaceSnapshot["tree"]): string[] {
       }
       const ext = node.name.split(".").pop()?.toLowerCase() ?? "";
       if (IMAGE_EXTENSIONS.has(ext)) {
-        result.push(node.path);
+        result.push(normalizeProjectPath(node.path));
       }
     }
   }
@@ -643,19 +643,20 @@ function App() {
         try {
           const remoteBlobs = await listCloudBlobs(collabAuthSession.token, projectId);
           for (const blob of remoteBlobs) {
-            const syncedVersion = blobBaseline.versions.get(blob.path) ?? 0;
+            const blobPath = normalizeProjectPath(blob.path);
+            const syncedVersion = blobBaseline.versions.get(blobPath) ?? 0;
             if (blob.latestVersion > syncedVersion) {
-              const existing = summary.byPath[blob.path];
+              const existing = summary.byPath[blobPath];
               if (existing === "pending-push") {
-                summary.byPath[blob.path] = "conflict";
+                summary.byPath[blobPath] = "conflict";
                 summary.pendingPushCount -= 1;
                 summary.conflictCount += 1;
               } else {
-                summary.byPath[blob.path] = "pending-pull";
+                summary.byPath[blobPath] = "pending-pull";
                 summary.pendingPullCount += 1;
               }
-            } else if (!summary.byPath[blob.path]) {
-              summary.byPath[blob.path] = "synced";
+            } else if (!summary.byPath[blobPath]) {
+              summary.byPath[blobPath] = "synced";
             }
           }
         } catch {
@@ -2558,15 +2559,15 @@ function App() {
         const remoteBlobs = await listCloudBlobs(token, projectId);
         const blobBaseline = await readBlobSyncBaseline(fileAdapter, projectId);
         for (const blob of remoteBlobs) {
-          const syncedVersion = blobBaseline.versions.get(blob.path) ?? 0;
+          const blobPath = normalizeProjectPath(blob.path);
+          const syncedVersion = blobBaseline.versions.get(blobPath) ?? 0;
           if (blob.latestVersion > syncedVersion) {
             try {
               const data = await downloadCloudBlob(token, projectId, blob.path);
-              await desktop.saveFileBinary(blob.path, data);
-              blobBaseline.versions.set(blob.path, blob.latestVersion);
-              // Update hash so subsequent push won't re-upload what we just pulled
+              await desktop.saveFileBinary(blobPath, data);
+              blobBaseline.versions.set(blobPath, blob.latestVersion);
               const hash = await computeHash(data);
-              blobBaseline.hashes.set(blob.path, hash);
+              blobBaseline.hashes.set(blobPath, hash);
               blobPulledCount += 1;
             } catch (error) {
               console.warn("[collab.pull] failed to download blob", blob.path, error);
