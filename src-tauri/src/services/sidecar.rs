@@ -95,23 +95,42 @@ fn is_valid_binary(path: &Path) -> bool {
 }
 
 fn resolve_from_path() -> Option<PathBuf> {
-    let output = Command::new("which").arg("node").output().ok()?;
-    if !output.status.success() {
-        return None;
+    #[cfg(windows)]
+    {
+        let output = Command::new("where.exe").arg("node").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_output_path(&output.stdout)
     }
-    parse_output_path(&output.stdout)
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("which").arg("node").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_output_path(&output.stdout)
+    }
 }
 
 fn resolve_from_login_shell() -> Option<PathBuf> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = Command::new(shell)
-        .args(["-lc", "command -v node"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+    // Login shell resolution is Unix-only; Windows finds node via PATH/where.exe above.
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let output = Command::new(shell)
+            .args(["-lc", "command -v node"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_output_path(&output.stdout)
     }
-    parse_output_path(&output.stdout)
+    #[cfg(windows)]
+    {
+        None
+    }
 }
 
 fn parse_output_path(stdout: &[u8]) -> Option<PathBuf> {
@@ -130,20 +149,23 @@ fn parse_output_path(stdout: &[u8]) -> Option<PathBuf> {
 }
 
 fn common_node_locations() -> Vec<PathBuf> {
-    let mut locations = vec![
-        PathBuf::from("/opt/homebrew/bin/node"),
-        PathBuf::from("/usr/local/bin/node"),
-        PathBuf::from("/usr/bin/node"),
-    ];
-
-    if cfg!(windows) {
-        locations.extend([
+    #[cfg(windows)]
+    {
+        vec![
             PathBuf::from(r"C:\Program Files\nodejs\node.exe"),
             PathBuf::from(r"C:\Program Files (x86)\nodejs\node.exe"),
-        ]);
+            // Scoop / nvm-windows common locations
+            PathBuf::from(r"C:\ProgramData\nvm\node.exe"),
+        ]
     }
-
-    locations
+    #[cfg(not(windows))]
+    {
+        vec![
+            PathBuf::from("/opt/homebrew/bin/node"),
+            PathBuf::from("/usr/local/bin/node"),
+            PathBuf::from("/usr/bin/node"),
+        ]
+    }
 }
 
 fn write_payload(child: &mut Child, payload: &str) -> Result<()> {
