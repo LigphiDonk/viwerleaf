@@ -84,6 +84,12 @@ fn emit_rerun_markers(path: &Path) -> io::Result<()> {
             continue;
         }
 
+        // Skip node_modules: tracked via package-lock.json, and recursing into
+        // it emits tens-of-thousands of markers which hangs Cargo on Windows.
+        if current.file_name().and_then(|n| n.to_str()) == Some("node_modules") {
+            continue;
+        }
+
         for entry in fs::read_dir(&current)? {
             pending.push(entry?.path());
         }
