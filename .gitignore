@@ -45,8 +45,9 @@ src-tauri/resources/sidecar/
 main.pdf
 main.log
 
-# Sidecar node_modules
+# Sidecar node_modules and build output
 sidecar/node_modules
+sidecar/dist
 
 # OMC files
 .omc

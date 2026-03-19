@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "sidecar:install": "npm install --prefix sidecar --no-audit --no-fund",
-    "dev": "npm run sidecar:install && vite --port 5173 --strictPort",
-    "build": "npm run sidecar:install && tsc -b && vite build",
+    "sidecar:build": "npm run --prefix sidecar build",
+    "dev": "npm run sidecar:install && npm run sidecar:build && vite --port 5173 --strictPort",
+    "build": "npm run sidecar:install && npm run sidecar:build && tsc -b && vite build",
     "tauri": "tauri",
     "version:bump": "node scripts/bump-version.mjs",
     "test": "vitest run",

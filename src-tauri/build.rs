@@ -48,17 +48,9 @@ fn stage_sidecar() -> io::Result<()> {
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is missing"));
     let source_root = manifest_dir.join("../sidecar");
     let target_root = manifest_dir.join("resources/sidecar");
-    let include_paths = [
-        "package.json",
-        "package-lock.json",
-        "index.mjs",
-        "agent.mjs",
-        "opencode.mjs",
-        "providers",
-        "tools",
-        "utils",
-        "node_modules",
-    ];
+    // Only bundle the pre-built single-file output produced by `npm run sidecar:build`.
+    // Shipping node_modules directly would exhaust disk space on Windows CI runners.
+    let include_paths = ["dist/index.mjs"];
 
     if target_root.exists() {
         fs::remove_dir_all(&target_root)?;

@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::state::AppState;
 
-const SIDECAR_ENTRY: &str = "index.mjs";
+const SIDECAR_ENTRY: &str = "dist/index.mjs";
 const NODE_ENV_KEY: &str = "VIEWERLEAF_NODE_PATH";
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;

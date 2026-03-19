@@ -2,8 +2,14 @@
   "name": "viewerleaf-sidecar",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "esbuild index.mjs --bundle --platform=node --format=esm --outfile=dist/index.mjs"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
     "openai": "^4.80.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
   }
 }
