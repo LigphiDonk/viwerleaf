@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   prepare:
@@ -60,4 +61,12 @@ jobs:
 
       - name: Push release tag
         run: git push origin "v${{ steps.bump.outputs.version }}"
+
+      - name: Trigger release workflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --field tag="v${{ steps.bump.outputs.version }}"
 

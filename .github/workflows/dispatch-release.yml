@@ -1,0 +1,54 @@
+name: Dispatch Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release. Run job without a value to list available tags."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List available tags
+        if: inputs.tag == ''
+        run: |
+          echo "No tag provided. Available release tags (most recent first):"
+          git tag --list 'v*' --sort=-version:refname | head -20
+          echo ""
+          echo "Re-run this workflow with one of the above tags to trigger a release."
+          exit 1
+
+      - name: Validate tag exists
+        if: inputs.tag != ''
+        run: |
+          if ! git rev-parse "${{ inputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag '${{ inputs.tag }}' does not exist."
+            echo ""
+            echo "Available tags:"
+            git tag --list 'v*' --sort=-version:refname | head -20
+            exit 1
+          fi
+          echo "Tag '${{ inputs.tag }}' found: $(git rev-parse ${{ inputs.tag }})"
+
+      - name: Trigger release workflow
+        if: inputs.tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --field tag="${{ inputs.tag }}"
+          echo "Release workflow dispatched for ${{ inputs.tag }}"
