@@ -14,6 +14,7 @@ export type DrawerTab =
   | "skills"
   | "usage"
   | "collab";
+export type AppLocale = "zh-CN" | "en-US";
 export type WorkspacePaneMode = "files" | "outline";
 export type WorkspaceSurface = "research" | "writing";
 export type ProjectFileType =

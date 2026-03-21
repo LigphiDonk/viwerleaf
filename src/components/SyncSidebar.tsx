@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { useState } from "react";
 
-import type { CloudProjectRole, CollabFileSyncState, CollabStatus } from "../types";
+import type { AppLocale, CloudProjectRole, CollabFileSyncState, CollabStatus } from "../types";
 
 type SyncChangeEntry = {
   path: string;
@@ -9,6 +9,7 @@ type SyncChangeEntry = {
 };
 
 interface SyncSidebarProps {
+  locale: AppLocale;
   projectId: string | null;
   workspaceLabel: string;
   linkedAt: string;
@@ -37,23 +38,25 @@ type SyncGraphEntry = {
   tone: "neutral" | "push" | "pull" | "conflict" | "success" | "error";
 };
 
-function roleLabel(role: CloudProjectRole | null) {
-  if (role === "owner") return "所有者";
-  if (role === "editor") return "可编辑";
-  if (role === "commenter") return "可批注";
-  if (role === "viewer") return "只读";
-  return "未连接";
+function roleLabel(role: CloudProjectRole | null, locale: AppLocale) {
+  const isZh = locale === "zh-CN";
+  if (role === "owner") return isZh ? "所有者" : "Owner";
+  if (role === "editor") return isZh ? "可编辑" : "Editor";
+  if (role === "commenter") return isZh ? "可批注" : "Commenter";
+  if (role === "viewer") return isZh ? "只读" : "Viewer";
+  return isZh ? "未连接" : "Disconnected";
 }
 
-function stateLabel(state: CollabFileSyncState) {
-  if (state === "synced") return "已同步";
-  if (state === "pending-push") return "待推送";
-  if (state === "pending-pull") return "待拉取";
-  if (state === "ignored") return "已忽略";
-  return "冲突";
+function stateLabel(state: CollabFileSyncState, locale: AppLocale) {
+  const isZh = locale === "zh-CN";
+  if (state === "synced") return isZh ? "已同步" : "Synced";
+  if (state === "pending-push") return isZh ? "待推送" : "Pending push";
+  if (state === "pending-pull") return isZh ? "待拉取" : "Pending pull";
+  if (state === "ignored") return isZh ? "已忽略" : "Ignored";
+  return isZh ? "冲突" : "Conflict";
 }
 
-function formatTimestamp(value: string) {
+function formatTimestamp(value: string, locale: AppLocale) {
   if (!value) {
     return "";
   }
@@ -61,7 +64,7 @@ function formatTimestamp(value: string) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString("zh-CN", {
+  return date.toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -81,6 +84,7 @@ function summarizeEntries(entries: SyncChangeEntry[]) {
 }
 
 export function SyncSidebar({
+  locale,
   projectId,
   workspaceLabel,
   linkedAt,
@@ -99,6 +103,7 @@ export function SyncSidebar({
   onLinkProject,
   onOpenCollabSettings,
 }: SyncSidebarProps) {
+  const isZh = locale === "zh-CN";
   const [ignoredExpanded, setIgnoredExpanded] = useState(false);
   const pendingPush = changes.filter((entry) => entry.state === "pending-push");
   const pendingPull = changes.filter((entry) => entry.state === "pending-pull");
@@ -110,15 +115,15 @@ export function SyncSidebar({
     ? [
       {
         id: "head",
-        title: workspaceLabel || "当前工作区",
-        subtitle: `当前权限：${roleLabel(role)} · ${projectId?.slice(0, 8)}…`,
+        title: workspaceLabel || (isZh ? "当前工作区" : "Current workspace"),
+        subtitle: `${isZh ? "当前权限" : "Role"}: ${roleLabel(role, locale)} · ${projectId?.slice(0, 8)}…`,
         badge: "HEAD",
         tone: "neutral",
       },
       ...(notice
         ? [{
           id: "notice",
-          title: notice.tone === "error" ? "最近一次操作失败" : "最近一次操作",
+          title: notice.tone === "error" ? (isZh ? "最近一次操作失败" : "Latest operation failed") : (isZh ? "最近一次操作" : "Latest operation"),
           subtitle: notice.text,
           badge: notice.tone === "error" ? "ERR" : "OK",
           tone: notice.tone === "error" ? "error" : "success",
@@ -127,7 +132,7 @@ export function SyncSidebar({
       ...(pendingPush.length > 0
         ? [{
           id: "push",
-          title: `待推送 ${pendingPush.length} 个文件`,
+          title: isZh ? `待推送 ${pendingPush.length} 个文件` : `${pendingPush.length} files pending push`,
           subtitle: summarizeEntries(pendingPush),
           badge: "PUSH",
           tone: "push",
@@ -136,7 +141,7 @@ export function SyncSidebar({
       ...(pendingPull.length > 0
         ? [{
           id: "pull",
-          title: `待拉取 ${pendingPull.length} 个文件`,
+          title: isZh ? `待拉取 ${pendingPull.length} 个文件` : `${pendingPull.length} files pending pull`,
           subtitle: summarizeEntries(pendingPull),
           badge: "PULL",
           tone: "pull",
@@ -145,7 +150,7 @@ export function SyncSidebar({
       ...(conflicts.length > 0
         ? [{
           id: "conflict",
-          title: `冲突 ${conflicts.length} 个文件`,
+          title: isZh ? `冲突 ${conflicts.length} 个文件` : `${conflicts.length} conflicting files`,
           subtitle: summarizeEntries(conflicts),
           badge: "CONFLICT",
           tone: "conflict",
@@ -153,8 +158,8 @@ export function SyncSidebar({
         : pendingPush.length === 0 && pendingPull.length === 0
           ? [{
             id: "synced",
-            title: "当前工作区与云端一致",
-            subtitle: lastSyncAt ? `最近同步：${formatTimestamp(lastSyncAt)}` : "还没有新的待同步文件。",
+            title: isZh ? "当前工作区与云端一致" : "Workspace is in sync with cloud",
+            subtitle: lastSyncAt ? `${isZh ? "最近同步" : "Last sync"}: ${formatTimestamp(lastSyncAt, locale)}` : (isZh ? "还没有新的待同步文件。" : "There are no pending files right now."),
             badge: "SYNC",
             tone: "success",
           } satisfies SyncGraphEntry]
@@ -162,8 +167,8 @@ export function SyncSidebar({
       ...(lastSyncAt
         ? [{
           id: "last-sync",
-          title: "最近一次手动同步",
-          subtitle: formatTimestamp(lastSyncAt),
+          title: isZh ? "最近一次手动同步" : "Latest manual sync",
+          subtitle: formatTimestamp(lastSyncAt, locale),
           badge: "SYNC",
           tone: "success",
         } satisfies SyncGraphEntry]
@@ -171,8 +176,8 @@ export function SyncSidebar({
       ...(linkedAt
         ? [{
           id: "linked",
-          title: "已关联云项目",
-          subtitle: formatTimestamp(linkedAt),
+          title: isZh ? "已关联云项目" : "Cloud project linked",
+          subtitle: formatTimestamp(linkedAt, locale),
           badge: "LINK",
           tone: "neutral",
         } satisfies SyncGraphEntry]
@@ -184,27 +189,29 @@ export function SyncSidebar({
     <aside className="primary-sidebar sync-sidebar">
       <div className="sync-sidebar-header">
         <div>
-          <div className="sidebar-header">源码管理</div>
-          <div className="sync-sidebar-title">手动云同步</div>
+          <div className="sidebar-header">{isZh ? "源码管理" : "Source Control"}</div>
+          <div className="sync-sidebar-title">{isZh ? "手动云同步" : "Manual Cloud Sync"}</div>
         </div>
         <button className="link-btn" type="button" onClick={onOpenCollabSettings}>
-          设置
+          {isZh ? "设置" : "Settings"}
         </button>
       </div>
 
       <div className="sync-sidebar-body">
         {!hasCloudProject ? (
           <div className="sync-empty-card">
-            <div className="sync-empty-title">当前工作区还没连接云协作</div>
+            <div className="sync-empty-title">{isZh ? "当前工作区还没连接云协作" : "This workspace is not linked to cloud collaboration yet"}</div>
             <div className="sync-empty-text">
-              先创建云项目或关联已有项目，之后这里会像源码管理面板一样显示待推送、待拉取和冲突文件。
+              {isZh
+                ? "先创建云项目或关联已有项目，之后这里会像源码管理面板一样显示待推送、待拉取和冲突文件。"
+                : "Create a cloud project or link an existing one. This panel will then show pending pushes, pulls, and conflicts."}
             </div>
             <div className="sync-empty-actions">
               <button className="btn-primary" type="button" onClick={onCreateProject}>
-                创建云项目
+                {isZh ? "创建云项目" : "Create Cloud Project"}
               </button>
               <button className="btn-secondary" type="button" onClick={onLinkProject}>
-                关联已有项目
+                {isZh ? "关联已有项目" : "Link Existing Project"}
               </button>
             </div>
           </div>
@@ -212,25 +219,25 @@ export function SyncSidebar({
           <>
             <div className="sync-summary-card">
               <div className="sync-summary-top">
-                <span className="sync-role-pill">{roleLabel(role)}</span>
+                <span className="sync-role-pill">{roleLabel(role, locale)}</span>
                 <span className="text-subtle text-xs">{projectId?.slice(0, 8)}…</span>
               </div>
               <div className="sync-summary-grid">
                 <div className="sync-metric is-push">
                   <strong>{pendingPush.length}</strong>
-                  <span>待推送</span>
+                  <span>{isZh ? "待推送" : "Push"}</span>
                 </div>
                 <div className="sync-metric is-pull">
                   <strong>{pendingPull.length}</strong>
-                  <span>待拉取</span>
+                  <span>{isZh ? "待拉取" : "Pull"}</span>
                 </div>
                 <div className="sync-metric is-conflict">
                   <strong>{conflicts.length}</strong>
-                  <span>冲突</span>
+                  <span>{isZh ? "冲突" : "Conflict"}</span>
                 </div>
                 <div className="sync-metric is-ignored">
                   <strong>{ignored.length}</strong>
-                  <span>已忽略</span>
+                  <span>{isZh ? "已忽略" : "Ignored"}</span>
                 </div>
               </div>
               <div className="sync-primary-actions">
@@ -245,7 +252,7 @@ export function SyncSidebar({
                     !collabStatus.canComment
                   }
                 >
-                  {busyAction === "sync-project" ? "推送中..." : "推送"}
+                  {busyAction === "sync-project" ? (isZh ? "推送中..." : "Pushing...") : (isZh ? "推送" : "Push")}
                 </button>
                 <button
                   className="btn-secondary"
@@ -253,7 +260,7 @@ export function SyncSidebar({
                   onClick={onPull}
                   disabled={busyAction === "sync-project" || busyAction === "pull-project" || pendingPull.length === 0}
                 >
-                  {busyAction === "pull-project" ? "拉取中..." : "拉取"}
+                  {busyAction === "pull-project" ? (isZh ? "拉取中..." : "Pulling...") : (isZh ? "拉取" : "Pull")}
                 </button>
               </div>
               <button
@@ -262,14 +269,14 @@ export function SyncSidebar({
                 onClick={onOpenShareModal}
                 disabled={!collabStatus.canShare}
               >
-                创建分享链接
+                {isZh ? "创建分享链接" : "Create Share Link"}
               </button>
             </div>
 
             <div className="sync-section sync-graph-section">
               <div className="sync-section-header">
-                <span>同步图</span>
-                <span className="text-subtle text-xs">{graphEntries.length} 个节点</span>
+                <span>{isZh ? "同步图" : "Sync Graph"}</span>
+                <span className="text-subtle text-xs">{isZh ? `${graphEntries.length} 个节点` : `${graphEntries.length} nodes`}</span>
               </div>
               <div className="sync-graph-list">
                 {graphEntries.map((entry, index) => (
@@ -294,12 +301,12 @@ export function SyncSidebar({
 
             <div className="sync-section">
               <div className="sync-section-header">
-                <span>变更</span>
-                <span className="text-subtle text-xs">{activeChanges.length} 个文件</span>
+                <span>{isZh ? "变更" : "Changes"}</span>
+                <span className="text-subtle text-xs">{isZh ? `${activeChanges.length} 个文件` : `${activeChanges.length} files`}</span>
               </div>
 
               {activeChanges.length === 0 ? (
-                <div className="sync-section-empty">当前没有待同步文件。</div>
+                <div className="sync-section-empty">{isZh ? "当前没有待同步文件。" : "There are no pending files."}</div>
               ) : (
                 <div className="sync-change-list">
                   {activeChanges.map((entry, index) => (
@@ -317,13 +324,13 @@ export function SyncSidebar({
                           entry.state === "conflict" && "is-conflict",
                         )}
                       >
-                        {stateLabel(entry.state)}
+                        {stateLabel(entry.state, locale)}
                       </span>
                       {entry.state === "pending-push" && (
                         <button
                           className="sync-ignore-btn"
                           type="button"
-                          title="忽略此文件（不推送）"
+                          title={isZh ? "忽略此文件（不推送）" : "Ignore this file (skip push)"}
                           onClick={() => onIgnorePath(entry.path)}
                         >
                           <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -345,9 +352,9 @@ export function SyncSidebar({
                   type="button"
                   onClick={() => setIgnoredExpanded((v) => !v)}
                 >
-                  <span>已忽略</span>
+                  <span>{isZh ? "已忽略" : "Ignored"}</span>
                   <span className="text-subtle text-xs">
-                    {ignored.length} 个文件
+                    {isZh ? `${ignored.length} 个文件` : `${ignored.length} files`}
                     <span className="sync-ignored-chevron">{ignoredExpanded ? " ▲" : " ▼"}</span>
                   </span>
                 </button>
@@ -362,10 +369,10 @@ export function SyncSidebar({
                         <button
                           className="sync-unignore-btn"
                           type="button"
-                          title="取消忽略"
+                          title={isZh ? "取消忽略" : "Restore"}
                           onClick={() => onUnignorePath(entry.path)}
                         >
-                          恢复
+                          {isZh ? "恢复" : "Restore"}
                         </button>
                       </div>
                     ))}
@@ -376,7 +383,9 @@ export function SyncSidebar({
 
             {conflicts.length > 0 && (
               <div className="sync-warning-card">
-                红色冲突文件不会被自动推送或拉取，避免把正文直接覆盖掉。
+                {isZh
+                  ? "红色冲突文件不会被自动推送或拉取，避免把正文直接覆盖掉。"
+                  : "Conflicting files are not pushed or pulled automatically, to avoid overwriting manuscript content."}
               </div>
             )}
           </>

@@ -17,13 +17,16 @@ import {
   type ResearchStageNode,
   type ResearchTaskNode,
 } from "../lib/researchCanvasGraph";
+import { localizeResearchSnapshot } from "../lib/researchLocale";
 import type {
+  AppLocale,
   ResearchCanvasSnapshot,
   ResearchStageSummary,
   ResearchTask,
 } from "../types";
 
 interface ResearchCanvasProps {
+  locale: AppLocale;
   research: ResearchCanvasSnapshot | null | undefined;
   isBusy?: boolean;
   onBootstrap: () => Promise<void> | void;
@@ -34,14 +37,15 @@ interface ResearchCanvasProps {
 
 function StageNode({ data }: NodeProps<ResearchStageNode>) {
   const stage = data.stage;
+  const isZh = stage.label !== "Survey" && stage.label !== "Ideation" && stage.label !== "Experiment" && stage.label !== "Publication" && stage.label !== "Promotion";
   return (
     <div className={`research-stage-node is-${stage.status}`}>
       <Handle type="target" position={Position.Top} className="research-node-handle" />
       <div className="research-stage-node__eyebrow">{stage.label}</div>
       <div className="research-stage-node__title">{stage.description}</div>
       <div className="research-stage-node__stats">
-        <span>{stage.doneTasks}/{stage.totalTasks || 0} tasks</span>
-        <span>{stage.artifactCount} artifacts</span>
+        <span>{stage.doneTasks}/{stage.totalTasks || 0} {isZh ? "任务" : "tasks"}</span>
+        <span>{stage.artifactCount} {isZh ? "产物" : "artifacts"}</span>
       </div>
       {stage.suggestedSkills.length > 0 ? (
         <div className="research-node-chips">
@@ -57,12 +61,17 @@ function StageNode({ data }: NodeProps<ResearchStageNode>) {
 
 function TaskNode({ data }: NodeProps<ResearchTaskNode>) {
   const task = data.task;
+  const isZh = /[\u4e00-\u9fff]/.test(task.title);
   return (
     <div className={`research-task-node is-${task.status}`}>
       <Handle type="target" position={Position.Top} className="research-node-handle" />
       <div className="research-task-node__header">
-        <span className="research-task-node__status">{task.status}</span>
-        <span className="research-task-node__priority">{task.priority}</span>
+        <span className="research-task-node__status">{isZh
+          ? ({ pending: "待开始", "in-progress": "进行中", done: "已完成", review: "待检查", deferred: "已延后", cancelled: "已取消" }[task.status] ?? task.status)
+          : task.status}</span>
+        <span className="research-task-node__priority">{isZh
+          ? ({ high: "高优先级", medium: "中优先级", low: "低优先级" }[task.priority] ?? task.priority)
+          : task.priority}</span>
       </div>
       <div className="research-task-node__title">{task.title}</div>
       <div className="research-task-node__body">{task.description}</div>
@@ -84,35 +93,38 @@ const nodeTypes = {
 } satisfies NodeTypes;
 
 function ResearchOnboarding({
+  locale,
   research,
   isBusy,
   onBootstrap,
 }: {
+  locale: AppLocale;
   research: ResearchCanvasSnapshot | null | undefined;
   isBusy?: boolean;
   onBootstrap: () => Promise<void> | void;
 }) {
+  const isZh = locale === "zh-CN";
   const status = research?.bootstrap.status ?? "needs-bootstrap";
   const title =
     status === "missing-brief" || status === "missing-tasks" || status === "partial"
-      ? "Repair the research canvas scaffold"
-      : "Enable the research canvas";
+      ? (isZh ? "修复研究画布脚手架" : "Repair the research canvas scaffold")
+      : (isZh ? "启用研究画布" : "Enable the research canvas");
   const buttonLabel =
     status === "missing-brief" || status === "missing-tasks" || status === "partial"
-      ? "Repair workflow"
-      : "Initialize workflow";
+      ? (isZh ? "修复工作流" : "Repair workflow")
+      : (isZh ? "初始化工作流" : "Initialize workflow");
 
   return (
     <div className="research-onboarding">
       <div className="research-onboarding__card">
-        <div className="research-onboarding__eyebrow">Research Canvas</div>
+        <div className="research-onboarding__eyebrow">{isZh ? "研究画布" : "Research Canvas"}</div>
         <h2>{title}</h2>
-        <p>{research?.bootstrap.message || "Initialize the research workflow for this project."}</p>
+        <p>{research?.bootstrap.message || (isZh ? "为当前项目初始化研究工作流。" : "Initialize the research workflow for this project.")}</p>
         <div className="research-onboarding__checklist">
-          <span>Project prompts: `AGENTS.md`, `CLAUDE.md`</span>
-          <span>Workflow state: `instance.json`, `.pipeline/*`</span>
-          <span>Hidden research workspace: `.viewerleaf/research/*`</span>
-          <span>Project skills and agent skill views</span>
+          <span>{isZh ? "项目提示词：`AGENTS.md`、`CLAUDE.md`" : "Project prompts: `AGENTS.md`, `CLAUDE.md`"}</span>
+          <span>{isZh ? "工作流状态：`instance.json`、`.pipeline/*`" : "Workflow state: `instance.json`, `.pipeline/*`"}</span>
+          <span>{isZh ? "隐藏研究工作区：`.viewerleaf/research/*`" : "Hidden research workspace: `.viewerleaf/research/*`"}</span>
+          <span>{isZh ? "项目技能与 agent skill 视图" : "Project skills and agent skill views"}</span>
         </div>
         <button
           type="button"
@@ -120,7 +132,7 @@ function ResearchOnboarding({
           onClick={() => void onBootstrap()}
           disabled={isBusy}
         >
-          {isBusy ? "Working..." : buttonLabel}
+          {isBusy ? (isZh ? "处理中..." : "Working...") : buttonLabel}
         </button>
       </div>
     </div>
@@ -128,28 +140,31 @@ function ResearchOnboarding({
 }
 
 function TaskInspector({
+  locale,
   task,
   onOpenArtifact,
   onUseTaskInChat,
   onOpenWriting,
 }: {
+  locale: AppLocale;
   task: ResearchTask;
   onOpenArtifact: (path: string) => void;
   onUseTaskInChat: (task: ResearchTask) => Promise<void> | void;
   onOpenWriting: () => void;
 }) {
+  const isZh = locale === "zh-CN";
   return (
     <div className="research-inspector__section">
       <div className="research-inspector__eyebrow">{task.stage}</div>
       <h3>{task.title}</h3>
       <p>{task.description}</p>
       <div className="research-inspector__meta">
-        <span>Status: {task.status}</span>
-        <span>Priority: {task.priority}</span>
+        <span>{isZh ? "状态" : "Status"}: {task.status}</span>
+        <span>{isZh ? "优先级" : "Priority"}: {task.priority}</span>
       </div>
       {task.inputsNeeded.length > 0 ? (
         <>
-          <div className="research-inspector__label">Missing inputs</div>
+          <div className="research-inspector__label">{isZh ? "缺失输入" : "Missing inputs"}</div>
           <div className="research-inspector__list">
             {task.inputsNeeded.map((item) => <span key={item}>{item}</span>)}
           </div>
@@ -157,7 +172,7 @@ function TaskInspector({
       ) : null}
       {task.suggestedSkills.length > 0 ? (
         <>
-          <div className="research-inspector__label">Suggested skills</div>
+          <div className="research-inspector__label">{isZh ? "推荐技能" : "Suggested skills"}</div>
           <div className="research-inspector__list">
             {task.suggestedSkills.map((item) => <span key={item}>{item}</span>)}
           </div>
@@ -165,17 +180,17 @@ function TaskInspector({
       ) : null}
       <div className="research-inspector__actions">
         <button type="button" className="research-primary-btn" onClick={() => void onUseTaskInChat(task)}>
-          Use in Chat
+          {isZh ? "发送到聊天" : "Use in Chat"}
         </button>
         {task.stage === "publication" ? (
           <button type="button" className="research-secondary-btn" onClick={onOpenWriting}>
-            Enter Writing Desk
+            {isZh ? "进入写作台" : "Enter Writing Desk"}
           </button>
         ) : null}
       </div>
       {task.artifactPaths.length > 0 ? (
         <>
-          <div className="research-inspector__label">Artifacts</div>
+          <div className="research-inspector__label">{isZh ? "产物" : "Artifacts"}</div>
           <div className="research-artifact-list">
             {task.artifactPaths.map((path) => (
               <button key={path} type="button" onClick={() => onOpenArtifact(path)}>
@@ -191,25 +206,28 @@ function TaskInspector({
 }
 
 function StageInspector({
+  locale,
   stage,
   onOpenArtifact,
   onOpenWriting,
 }: {
+  locale: AppLocale;
   stage: ResearchStageSummary;
   onOpenArtifact: (path: string) => void;
   onOpenWriting: () => void;
 }) {
+  const isZh = locale === "zh-CN";
   return (
     <div className="research-inspector__section">
       <div className="research-inspector__eyebrow">{stage.label}</div>
       <h3>{stage.description}</h3>
       <div className="research-inspector__meta">
-        <span>Status: {stage.status}</span>
-        <span>{stage.doneTasks}/{stage.totalTasks || 0} tasks done</span>
+        <span>{isZh ? "状态" : "Status"}: {stage.status}</span>
+        <span>{isZh ? "已完成任务" : "Tasks done"}: {stage.doneTasks}/{stage.totalTasks || 0}</span>
       </div>
       {stage.missingInputs.length > 0 ? (
         <>
-          <div className="research-inspector__label">Open questions</div>
+          <div className="research-inspector__label">{isZh ? "待补输入" : "Open questions"}</div>
           <div className="research-inspector__list">
             {stage.missingInputs.map((item) => <span key={item}>{item}</span>)}
           </div>
@@ -217,7 +235,7 @@ function StageInspector({
       ) : null}
       {stage.suggestedSkills.length > 0 ? (
         <>
-          <div className="research-inspector__label">Suggested skills</div>
+          <div className="research-inspector__label">{isZh ? "推荐技能" : "Suggested skills"}</div>
           <div className="research-inspector__list">
             {stage.suggestedSkills.map((item) => <span key={item}>{item}</span>)}
           </div>
@@ -226,13 +244,13 @@ function StageInspector({
       {stage.stage === "publication" ? (
         <div className="research-inspector__actions">
           <button type="button" className="research-primary-btn" onClick={onOpenWriting}>
-            Enter Writing Desk
+            {isZh ? "进入写作台" : "Enter Writing Desk"}
           </button>
         </div>
       ) : null}
       {stage.artifactPaths.length > 0 ? (
         <>
-          <div className="research-inspector__label">Artifacts</div>
+          <div className="research-inspector__label">{isZh ? "产物" : "Artifacts"}</div>
           <div className="research-artifact-list">
             {stage.artifactPaths.map((path) => (
               <button key={path} type="button" onClick={() => onOpenArtifact(path)}>
@@ -247,6 +265,7 @@ function StageInspector({
 }
 
 export function ResearchCanvas({
+  locale,
   research,
   isBusy = false,
   onBootstrap,
@@ -254,35 +273,42 @@ export function ResearchCanvas({
   onUseTaskInChat,
   onOpenWriting,
 }: ResearchCanvasProps) {
-  const needsBootstrap = !research || research.bootstrap.status !== "ready";
-  const graph = useMemo(
-    () => (research ? buildResearchCanvasGraph(research) : { nodes: [], edges: [] }),
-    [research],
+  const isZh = locale === "zh-CN";
+  const localizedResearch = useMemo(
+    () => (research ? localizeResearchSnapshot(research, locale) : research),
+    [locale, research],
   );
-  const [selectionId, setSelectionId] = useState<string | null>(research ? defaultResearchSelection(research) : null);
+  const needsBootstrap = !localizedResearch || localizedResearch.bootstrap.status !== "ready";
+  const graph = useMemo(
+    () => (localizedResearch ? buildResearchCanvasGraph(localizedResearch) : { nodes: [], edges: [] }),
+    [localizedResearch],
+  );
+  const [selectionId, setSelectionId] = useState<string | null>(
+    localizedResearch ? defaultResearchSelection(localizedResearch) : null,
+  );
 
   useEffect(() => {
-    setSelectionId(research ? defaultResearchSelection(research) : null);
-  }, [research]);
+    setSelectionId(localizedResearch ? defaultResearchSelection(localizedResearch) : null);
+  }, [localizedResearch]);
 
   if (needsBootstrap) {
-    return <ResearchOnboarding research={research} isBusy={isBusy} onBootstrap={onBootstrap} />;
+    return <ResearchOnboarding locale={locale} research={localizedResearch} isBusy={isBusy} onBootstrap={onBootstrap} />;
   }
 
-  const resolved = selectionToEntity(research, selectionId);
+  const resolved = selectionToEntity(localizedResearch, selectionId);
 
   return (
     <div className="research-canvas-shell">
       <div className="research-canvas__board">
         <div className="research-canvas__header">
           <div>
-            <div className="research-canvas__eyebrow">Research Workflow</div>
-            <h2>{research.briefTopic}</h2>
-            <p>{research.briefGoal}</p>
+            <div className="research-canvas__eyebrow">{isZh ? "研究工作流" : "Research Workflow"}</div>
+            <h2>{localizedResearch.briefTopic}</h2>
+            <p>{localizedResearch.briefGoal}</p>
           </div>
           <div className="research-canvas__header-meta">
-            <span>Current stage: {research.currentStage}</span>
-            {research.nextTask ? <span>Next task: {research.nextTask.title}</span> : null}
+            <span>{isZh ? "当前阶段" : "Current stage"}: {resolved.stage?.label ?? localizedResearch.stageSummaries.find((item) => item.stage === localizedResearch.currentStage)?.label ?? localizedResearch.currentStage}</span>
+            {localizedResearch.nextTask ? <span>{isZh ? "下一任务" : "Next task"}: {localizedResearch.nextTask.title}</span> : null}
           </div>
         </div>
         <div className="research-canvas__flow">
@@ -303,11 +329,12 @@ export function ResearchCanvas({
 
       <aside className="research-inspector">
         <div className="research-inspector__header">
-          <div className="research-inspector__eyebrow">Inspector</div>
-          <h3>{resolved.task ? "Task Detail" : "Stage Detail"}</h3>
+          <div className="research-inspector__eyebrow">{isZh ? "检查面板" : "Inspector"}</div>
+          <h3>{resolved.task ? (isZh ? "任务详情" : "Task Detail") : (isZh ? "阶段详情" : "Stage Detail")}</h3>
         </div>
         {resolved.task ? (
           <TaskInspector
+            locale={locale}
             task={resolved.task}
             onOpenArtifact={onOpenArtifact}
             onUseTaskInChat={onUseTaskInChat}
@@ -315,13 +342,14 @@ export function ResearchCanvas({
           />
         ) : resolved.stage ? (
           <StageInspector
+            locale={locale}
             stage={resolved.stage}
             onOpenArtifact={onOpenArtifact}
             onOpenWriting={onOpenWriting}
           />
         ) : (
           <div className="research-inspector__empty">
-            Select a stage or task node to inspect its next action.
+            {isZh ? "选择一个阶段或任务节点，查看下一步操作。" : "Select a stage or task node to inspect its next action."}
           </div>
         )}
       </aside>

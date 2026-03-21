@@ -7,6 +7,7 @@ import { SkillArsenal } from "./SkillArsenal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
+  AppLocale,
   AgentMessage,
   AgentProfile,
   AgentSessionSummary,
@@ -26,6 +27,7 @@ import type {
 } from "../types";
 
 interface SidebarProps {
+  locale: AppLocale;
   tab: DrawerTab;
   messages: AgentMessage[];
   sessions: AgentSessionSummary[];
@@ -149,6 +151,7 @@ const LATEX_ENGINE_LABELS: Record<LatexEngine, string> = {
 };
 
 export function Sidebar({
+  locale,
   tab,
   messages,
   sessions,
@@ -221,6 +224,7 @@ export function Sidebar({
   onDeleteComment,
   onJumpToCommentLine,
 }: SidebarProps) {
+  const isZh = locale === "zh-CN";
   const [collabConfigForm, setCollabConfigForm] = useState({
     httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
     wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
@@ -250,7 +254,7 @@ export function Sidebar({
     <div className="primary-sidebar">
       {tab === "latex" && (
         <>
-          <div className="sidebar-header">LaTeX 编译</div>
+          <div className="sidebar-header">{isZh ? "LaTeX 编译" : "LaTeX Setup"}</div>
           <div className="sidebar-content sidebar-stack">
             <div className="card latex-status-card">
               <div className="latex-status-header">
@@ -436,7 +440,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "figures" && (
         <>
-          <div className="sidebar-header">图表生成</div>
+          <div className="sidebar-header">{isZh ? "图表生成" : "Figures"}</div>
           <div className="sidebar-content sidebar-stack">
             <div className="card">
               <div className="card-header">操作面板</div>
@@ -495,7 +499,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "skills" && (
         <>
-          <div className="sidebar-header">技能军火库</div>
+          <div className="sidebar-header">{isZh ? "技能军火库" : "Skill Arsenal"}</div>
           <div className="sidebar-content sidebar-stack">
             <SkillArsenal
               skills={skills}
@@ -509,7 +513,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "usage" && (
         <>
-          <div className="sidebar-header">用量统计</div>
+          <div className="sidebar-header">{isZh ? "用量统计" : "Usage"}</div>
           <div className="sidebar-content sidebar-stack">
             <div className="sidebar-metrics-grid usage-summary-grid">
               <div className="card sidebar-metric-card usage-summary-card">
@@ -552,7 +556,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "logs" && (
         <>
-          <div className="sidebar-header">编译日志</div>
+          <div className="sidebar-header">{isZh ? "编译日志" : "Compile Logs"}</div>
           <div className="sidebar-content sidebar-stack">
             <div className="card">
               <div className="card-header">编译状态</div>
@@ -569,7 +573,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "collab" && (
         <>
-          <div className="sidebar-header">云协作</div>
+          <div className="sidebar-header">{isZh ? "云协作" : "Cloud Collaboration"}</div>
           <div className="sidebar-content sidebar-stack">
             {/* Card 1: Identity */}
             <div className="card">

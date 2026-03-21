@@ -1,8 +1,9 @@
 import { type ReactNode, useMemo, useState } from "react";
 
-import type { WorkspaceEntry } from "../types";
+import type { AppLocale, WorkspaceEntry } from "../types";
 
 interface WelcomeWorkspaceProps {
+  locale?: AppLocale;
   recentWorkspaces: WorkspaceEntry[];
   isWindowDragEnabled?: boolean;
   embedded?: boolean;
@@ -29,6 +30,7 @@ function WelcomeActivityIcon({
 }
 
 export function WelcomeWorkspace({
+  locale = "zh-CN",
   recentWorkspaces,
   isWindowDragEnabled = false,
   embedded = false,
@@ -38,6 +40,7 @@ export function WelcomeWorkspace({
   onOpenRecentWorkspace,
 }: WelcomeWorkspaceProps) {
   const [showAllRecent, setShowAllRecent] = useState(false);
+  const isZh = locale === "zh-CN";
   const visibleRecentWorkspaces = useMemo(
     () => (showAllRecent ? recentWorkspaces : recentWorkspaces.slice(0, RECENT_WORKSPACE_PREVIEW_COUNT)),
     [recentWorkspaces, showAllRecent],
@@ -91,35 +94,35 @@ export function WelcomeWorkspace({
           <div className="welcome-canvas-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />
         )}
         <div className="welcome-center">
-          <div className="welcome-kicker">Workspace</div>
-          <h1 className="welcome-title">打开项目</h1>
-          <p className="welcome-copy">或创建一个新项目。</p>
+          <div className="welcome-kicker">{isZh ? "工作区" : "Workspace"}</div>
+          <h1 className="welcome-title">{isZh ? "打开项目" : "Open a project"}</h1>
+          <p className="welcome-copy">{isZh ? "或创建一个新项目。" : "Or create a new one."}</p>
 
           <div className="welcome-actions">
             <button className="btn-primary welcome-action-btn" type="button" onClick={onOpenProject}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7h5l2 2h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
               </svg>
-              打开项目
+              {isZh ? "打开项目" : "Open Project"}
             </button>
             <button className="btn-secondary welcome-action-btn welcome-action-btn--secondary" type="button" onClick={onCreateProject}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14"></path>
                 <path d="M5 12h14"></path>
               </svg>
-              创建项目
+              {isZh ? "创建项目" : "Create Project"}
             </button>
             <button className="btn-secondary welcome-action-btn welcome-action-btn--secondary" type="button" onClick={onLinkCloudProject}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 4"></path>
                 <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13 20"></path>
               </svg>
-              关联云项目
+              {isZh ? "关联云项目" : "Link Cloud Project"}
             </button>
           </div>
 
           <div className="welcome-recent-section">
-            <div className="welcome-recent-label">最近项目</div>
+            <div className="welcome-recent-label">{isZh ? "最近项目" : "Recent Projects"}</div>
 
             {visibleRecentWorkspaces.length > 0 ? (
               <div className="welcome-recent-list">
@@ -144,12 +147,12 @@ export function WelcomeWorkspace({
                 ))}
               </div>
             ) : (
-              <div className="welcome-empty-note">暂无最近项目</div>
+              <div className="welcome-empty-note">{isZh ? "暂无最近项目" : "No recent projects yet"}</div>
             )}
 
             {hasHiddenRecentWorkspaces && (
               <button className="welcome-more-btn" type="button" onClick={() => setShowAllRecent(true)}>
-                更多
+                {isZh ? "更多" : "More"}
               </button>
             )}
           </div>

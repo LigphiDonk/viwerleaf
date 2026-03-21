@@ -68,6 +68,7 @@ import { desktop, isTauriRuntime } from "./lib/desktop";
 import { AGENT_BRANDS, getAgentBrand, isAgentVendor, type AgentVendor } from "./lib/agentCatalog";
 import { resolvePdfSource } from "./lib/pdf-source";
 import { findActiveHeading } from "./lib/outline";
+import { localizeResearchSnapshot } from "./lib/researchLocale";
 import {
   closePathTab,
   closeTextTab,
@@ -83,6 +84,7 @@ import { useProjectOutline } from "./hooks/useProjectOutline";
 import { useStableCallback as useEffectEvent } from "./hooks/useStableCallback";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import type {
+  AppLocale,
   AppMenuAction,
   AppMenuState,
   CloudProjectRole,
@@ -169,6 +171,7 @@ function toProjectRelativePath(rootPath: string, filePath?: string) {
 const RECENT_WORKSPACE_STORAGE_KEY = "viewerleaf:recent-workspaces:v1";
 const WINDOW_WORKSPACE_TABS_STORAGE_KEY = "viewerleaf:window-workspaces:v1";
 const AUTO_SAVE_STORAGE_KEY = "viewerleaf:auto-save:v1";
+const APP_LOCALE_STORAGE_KEY = "viewerleaf:locale:v1";
 const RELEASE_NOTES_VERSION_STORAGE_KEY = "viewerleaf:release-notes:last-seen-version:v1";
 const GITHUB_RELEASE_TAG_ENDPOINT = "https://api.github.com/repos/LigphiDonk/viwerleaf/releases/tags";
 const MAX_RECENT_WORKSPACES = 10;
@@ -436,6 +439,13 @@ function upsertWorkspaceEntry(entries: WorkspaceEntry[], rootPath: string, max: 
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
+  const [locale, setLocale] = useState<AppLocale>(() => {
+    if (typeof window === "undefined") {
+      return "zh-CN";
+    }
+    const stored = window.localStorage.getItem(APP_LOCALE_STORAGE_KEY);
+    return stored === "en-US" ? "en-US" : "zh-CN";
+  });
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceEntry[]>(() =>
     readStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY),
   );
@@ -446,6 +456,8 @@ function App() {
     readStoredBoolean(AUTO_SAVE_STORAGE_KEY, false),
   );
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("project");
+  const [isDrawerVisible, setIsDrawerVisible] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
   const [terminalPanelHeight, setTerminalPanelHeight] = useState(TERMINAL_PANEL_DEFAULT_HEIGHT);
   const [terminalCommandRequest, setTerminalCommandRequest] = useState<{ id: number; command: string } | null>(null);
@@ -468,6 +480,7 @@ function App() {
   const [editorMode, setEditorMode] = useState<"code" | "visual">("code");
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null);
   const editorPreviewSplitRef = useRef<HTMLDivElement | null>(null);
+  const activityBarShellRef = useRef<HTMLDivElement | null>(null);
 
   const { file: fileAdapter, project: projectAdapter, compile: compileAdapter } = useMemo(
     () => createLocalAdapter(),
@@ -1081,9 +1094,43 @@ function App() {
     isTauriRuntime() &&
     /win/i.test(window.navigator.userAgent) &&
     !/mac/i.test(window.navigator.userAgent);
-  const toggleDrawerTab = useEffectEvent((tab: DrawerTab) => {
+  const isZh = locale === "zh-CN";
+  const openDrawerTab = useEffectEvent((tab: DrawerTab) => {
+    setIsSettingsOpen(false);
     setDrawerTab(tab);
+    setIsDrawerVisible(true);
   });
+  const toggleDrawerTab = useEffectEvent((tab: DrawerTab) => {
+    setIsSettingsOpen(false);
+    if (drawerTab === tab && isDrawerVisible) {
+      setIsDrawerVisible(false);
+      return;
+    }
+    setDrawerTab(tab);
+    setIsDrawerVisible(true);
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(APP_LOCALE_STORAGE_KEY, locale);
+  }, [locale]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!activityBarShellRef.current?.contains(event.target as Node)) {
+        setIsSettingsOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [isSettingsOpen]);
 
   useEffect(() => {
     writeStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY, recentWorkspaces);
@@ -1198,6 +1245,8 @@ function App() {
       setSelectedText("");
       setLastAutoWritingHandoffKey("");
       setWorkspaceSurface(nextSnapshot.projectConfig.rootPath ? "research" : "writing");
+      setIsDrawerVisible(true);
+      setIsSettingsOpen(false);
     }
     setSelectedBrief((current) =>
       current ? nextSnapshot.figureBriefs.find((item) => item.id === current.id) ?? null : null,
@@ -1425,14 +1474,14 @@ function App() {
       const selectedEngineAvailable = environment?.availableEngines.includes(selectedEngine) ?? false;
 
       if (!environment?.ready || !selectedEngineAvailable) {
-        setDrawerTab("latex");
+        openDrawerTab("latex");
         return;
       }
     } catch (error) {
       compilePipeline.logCompileDebug("warn", "[compile] failed to detect compile environment", {
         reason: error instanceof Error ? error.message : String(error),
       });
-      setDrawerTab("latex");
+      openDrawerTab("latex");
       return;
     }
 
@@ -1667,7 +1716,7 @@ function App() {
   });
 
   const handleRunAgent = useEffectEvent(async () => {
-    setDrawerTab("ai");
+    openDrawerTab("ai");
     await collabManager?.flushAll();
     await runAgentBase();
   });
@@ -1677,12 +1726,12 @@ function App() {
   });
 
   const handleNewSession = useEffectEvent(() => {
-    setDrawerTab("ai");
+    openDrawerTab("ai");
     newSessionBase();
   });
 
   const handleSelectSession = useEffectEvent(async (sessionId: string) => {
-    setDrawerTab("ai");
+    openDrawerTab("ai");
     await selectSessionBase(sessionId);
   });
 
@@ -1695,7 +1744,7 @@ function App() {
   });
 
   const handleSendMessage = useEffectEvent(async (text: string) => {
-    setDrawerTab("ai");
+    openDrawerTab("ai");
     await collabManager?.flushAll();
     await sendMessageBase(text);
   });
@@ -1836,7 +1885,7 @@ function App() {
         : current,
     );
     setSelectedBrief(brief);
-    setDrawerTab("figures");
+    openDrawerTab("figures");
   }
 
   async function handleRunFigureSkill() {
@@ -2352,7 +2401,7 @@ function App() {
     const { httpBaseUrl } = resolveCollabBaseUrls();
     if (!httpBaseUrl) {
       window.alert("请先在云协作面板中配置服务器地址。");
-      setDrawerTab("collab");
+      openDrawerTab("collab");
       return;
     }
     const defaultName = workspaceLabelFromRoot(snapshot.projectConfig.rootPath);
@@ -3178,7 +3227,10 @@ function App() {
     );
   }, [activeOutlineId, openTextFile, outlineLoading, outlineTree, outlineWarnings.length]);
 
-  const researchSnapshot = snapshot?.research ?? null;
+  const researchSnapshot = useMemo(
+    () => (snapshot?.research ? localizeResearchSnapshot(snapshot.research, locale) : null),
+    [locale, snapshot?.research],
+  );
   const currentResearchStageSummary =
     researchSnapshot?.stageSummaries.find((stage) => stage.stage === researchSnapshot.currentStage) ?? null;
   const publicationTask =
@@ -3209,12 +3261,12 @@ function App() {
 
   const compileStatusLabel =
     snapshot.compileResult.status === "success"
-      ? "成功"
+      ? (isZh ? "成功" : "Success")
       : snapshot.compileResult.status === "failed"
-        ? "失败"
+        ? (isZh ? "失败" : "Failed")
         : snapshot.compileResult.status === "running"
-          ? "正在编译"
-          : "空闲";
+          ? (isZh ? "正在编译" : "Compiling")
+          : (isZh ? "空闲" : "Idle");
   const compileNeedsAttention = Boolean(
     compileEnvironment &&
     (!compileEnvironment.ready ||
@@ -3271,30 +3323,30 @@ function App() {
                   className={`surface-switcher__btn ${workspaceSurface === "research" ? "is-active" : ""}`}
                   onClick={() => setWorkspaceSurface("research")}
                 >
-                  Research Canvas
+                  {isZh ? "研究画布" : "Research Canvas"}
                 </button>
                 <button
                   type="button"
                   className={`surface-switcher__btn ${workspaceSurface === "writing" ? "is-active" : ""}`}
                   onClick={() => setWorkspaceSurface("writing")}
                 >
-                  Writing Desk
+                  {isZh ? "写作台" : "Writing Desk"}
                 </button>
               </div>
               {workspaceSurface === "writing" ? (
                 <span className="topbar-metric">
-                  编译状态
+                  {isZh ? "编译状态" : "Compile"}
                   <strong>{compileStatusLabel}</strong>
                 </span>
               ) : (
                 <>
                   <span className="topbar-metric">
-                    当前阶段
+                    {isZh ? "当前阶段" : "Stage"}
                     <strong>{currentResearchStageSummary?.label ?? "Research Canvas"}</strong>
                   </span>
                   <span className="topbar-metric">
-                    下一任务
-                    <strong>{researchSnapshot?.nextTask?.title ?? "等待定义"}</strong>
+                    {isZh ? "下一任务" : "Next Task"}
+                    <strong>{researchSnapshot?.nextTask?.title ?? (isZh ? "等待定义" : "Awaiting definition")}</strong>
                   </span>
                 </>
               )}
@@ -3302,13 +3354,13 @@ function App() {
             <div className="topbar-right">
               {workspaceSurface === "writing" ? (
                 <>
-                  <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
+                  <span className="topbar-metric">{isZh ? "诊断结果" : "Diagnostics"} <strong>{snapshot.compileResult.diagnostics.length}{isZh ? " 项" : ""}</strong></span>
                   <button
                     className={`topbar-terminal-btn hover-spring ${isTerminalVisible ? "is-active" : ""}`}
                     onClick={() => setIsTerminalVisible((current) => !current)}
                     type="button"
-                    title={isTerminalVisible ? "隐藏终端" : "打开终端"}
-                    aria-label={isTerminalVisible ? "隐藏终端" : "打开终端"}
+                    title={isTerminalVisible ? (isZh ? "隐藏终端" : "Hide terminal") : (isZh ? "打开终端" : "Open terminal")}
+                    aria-label={isTerminalVisible ? (isZh ? "隐藏终端" : "Hide terminal") : (isZh ? "打开终端" : "Open terminal")}
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -3321,8 +3373,12 @@ function App() {
                     onClick={() => void handleInteractiveCompile()}
                     type="button"
                     disabled={snapshot.compileResult.status === "running"}
-                    title={compileNeedsAttention ? "本地 TeX 环境未就绪，打开 LaTeX 配置" : "编译当前项目"}
-                    aria-label={compileNeedsAttention ? "打开 LaTeX 配置" : "编译当前项目"}
+                    title={compileNeedsAttention
+                      ? (isZh ? "本地 TeX 环境未就绪，打开 LaTeX 配置" : "TeX environment is not ready, open LaTeX setup")
+                      : (isZh ? "编译当前项目" : "Compile current project")}
+                    aria-label={compileNeedsAttention
+                      ? (isZh ? "打开 LaTeX 配置" : "Open LaTeX setup")
+                      : (isZh ? "编译当前项目" : "Compile current project")}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <polygon points="8,5 19,12 8,19" fill="currentColor"></polygon>
@@ -3367,20 +3423,21 @@ function App() {
       </header>
 
       <div className="workspace-container">
+          <div className="activity-bar-shell" ref={activityBarShellRef}>
           <div className="activity-bar">
             <button
-              className={`activity-icon hover-spring ${drawerTab === "project" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "project" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("project")}
-              title="Project"
+              title={isZh ? "项目" : "Project"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7h5l2 2h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
               </svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "sync" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "sync" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("sync")}
-              title="源码管理"
+              title={isZh ? "源码管理" : "Source Control"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 6v12"></path>
@@ -3390,45 +3447,45 @@ function App() {
               </svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "latex" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "latex" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("latex")}
-              title="LaTeX 编译配置"
+              title={isZh ? "LaTeX 编译配置" : "LaTeX Setup"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h10l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path><path d="M14 4v4h4"></path><path d="M8 12h8"></path><path d="M8 16h6"></path></svg>
               {compileNeedsAttention && <span className="activity-icon-dot activity-icon-dot-warning"></span>}
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "ai" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "ai" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("ai")}
-              title="AI 智能体助手"
+              title={isZh ? "AI 智能体助手" : "AI Assistant"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8" y2="16"></line><line x1="16" y1="16" x2="16" y2="16"></line></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "figures" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "figures" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("figures")}
-              title="图表工作区 (Figures)"
+              title={isZh ? "图表工作区" : "Figures"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "skills" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "skills" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("skills")}
-              title="应用与技能 (App Store)"
+              title={isZh ? "应用与技能" : "Apps & Skills"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "usage" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "usage" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("usage")}
-              title="模型用量 (Usage)"
+              title={isZh ? "模型用量" : "Usage"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"></path><path d="M7 14l4-4 3 3 5-7"></path></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "collab" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "collab" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("collab")}
-              title="云协作与审阅"
+              title={isZh ? "云协作与审阅" : "Cloud Collaboration"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -3441,18 +3498,59 @@ function App() {
             <div style={{ flex: 1 }}></div>
 
             <button
-              className={`activity-icon hover-spring ${drawerTab === "logs" ? "is-active" : ""}`}
+              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "logs" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("logs")}
-              title="编译日志"
+              title={isZh ? "编译日志" : "Compile Logs"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
               {snapshot.compileResult.diagnostics.length > 0 && <span style={{ position: "absolute", top: 2, right: 2, width: 8, height: 8, borderRadius: "50%", background: "var(--danger)" }}></span>}
             </button>
+            <button
+              className={`activity-icon hover-spring ${isSettingsOpen ? "is-active" : ""}`}
+              onClick={() => setIsSettingsOpen((current) => !current)}
+              title={isZh ? "设置" : "Settings"}
+              aria-label={isZh ? "设置" : "Settings"}
+              type="button"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33"></path>
+                <path d="M4.6 9A1.65 1.65 0 0 0 4.27 7.18l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 8.92 4"></path>
+                <path d="M9 19.08A1.65 1.65 0 0 0 7.18 19l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4 14.92"></path>
+                <path d="M15 4.92A1.65 1.65 0 0 0 16.82 5l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 20 9.08"></path>
+              </svg>
+            </button>
+          </div>
+          {isSettingsOpen && (
+            <div className="activity-settings-popover">
+              <div className="activity-settings-popover__eyebrow">{isZh ? "设置" : "Settings"}</div>
+              <div className="activity-settings-popover__section">
+                <div className="activity-settings-popover__label">{isZh ? "界面语言" : "Interface language"}</div>
+                <div className="activity-settings-popover__options">
+                  <button
+                    type="button"
+                    className={`activity-settings-popover__option ${locale === "zh-CN" ? "is-active" : ""}`}
+                    onClick={() => setLocale("zh-CN")}
+                  >
+                    中文
+                  </button>
+                  <button
+                    type="button"
+                    className={`activity-settings-popover__option ${locale === "en-US" ? "is-active" : ""}`}
+                    onClick={() => setLocale("en-US")}
+                  >
+                    English
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           </div>
 
-          {drawerTab === "project" ? (
+          {isDrawerVisible && (drawerTab === "project" ? (
             <ProjectSidebar
-              projectName={workspaceLabelFromRoot(snapshot.projectConfig.rootPath) || "未命名项目"}
+              locale={locale}
+              projectName={workspaceLabelFromRoot(snapshot.projectConfig.rootPath) || (isZh ? "未命名项目" : "Untitled Project")}
               mode={workspacePaneMode}
               nodes={snapshot.tree}
               activeFile={focusedTreePath}
@@ -3470,6 +3568,7 @@ function App() {
             />
           ) : drawerTab === "sync" ? (
             <SyncSidebar
+              locale={locale}
               projectId={snapshot.collab?.cloudProjectId ?? null}
               workspaceLabel={workspaceLabelFromRoot(snapshot.projectConfig.rootPath)}
               linkedAt={snapshot.collab?.linkedAt ?? ""}
@@ -3487,10 +3586,11 @@ function App() {
               onOpenShareModal={handleOpenShareLinkModal}
               onCreateProject={() => void handleCreateCloudProject()}
               onLinkProject={() => void handleLinkCloudProject()}
-              onOpenCollabSettings={() => toggleDrawerTab("collab")}
+              onOpenCollabSettings={() => openDrawerTab("collab")}
             />
           ) : (
             <Sidebar
+              locale={locale}
               tab={drawerTab}
               messages={messages}
               sessions={agentSessions}
@@ -3563,12 +3663,13 @@ function App() {
               onDeleteComment={handleDeleteComment}
               onJumpToCommentLine={handleJumpToCommentLine}
             />
-          )}
+          ))}
 
           <div className="workspace-body" ref={workspaceBodyRef}>
             {showResearchSurface ? (
               <div className="workspace-main">
                 <ResearchCanvas
+                  locale={locale}
                   research={researchSnapshot}
                   isBusy={isResearchBootstrapBusy}
                   onBootstrap={handleEnsureResearchScaffold}
@@ -3583,9 +3684,9 @@ function App() {
                   {showResearchHandoffBanner && (
                     <div className="research-handoff-banner">
                       <div className="research-handoff-banner__meta">
-                        <div className="research-inspector__eyebrow">Publication Handoff</div>
-                        <strong>{publicationTask?.title ?? "进入论文写作阶段"}</strong>
-                        <span>{publicationTask?.description ?? "当前研究流程已经进入论文撰写与整理阶段。"}</span>
+                        <div className="research-inspector__eyebrow">{isZh ? "写作接力" : "Publication Handoff"}</div>
+                        <strong>{publicationTask?.title ?? (isZh ? "进入论文写作阶段" : "Move into paper writing")}</strong>
+                        <span>{publicationTask?.description ?? (isZh ? "当前研究流程已经进入论文撰写与整理阶段。" : "The workflow has moved into manuscript drafting and cleanup.")}</span>
                         {publicationTask?.suggestedSkills.length ? (
                           <div className="research-node-chips">
                             {publicationTask.suggestedSkills.map((skillId) => (
@@ -3600,7 +3701,7 @@ function App() {
                           className="research-secondary-btn"
                           onClick={() => setWorkspaceSurface("research")}
                         >
-                          返回研究画布
+                          {isZh ? "返回研究画布" : "Back to Research Canvas"}
                         </button>
                         {publicationTask ? (
                           <button
@@ -3608,7 +3709,7 @@ function App() {
                             className="research-primary-btn"
                             onClick={() => void handleUseResearchTaskInChat(publicationTask)}
                           >
-                            Use in Chat
+                            {isZh ? "发送到聊天" : "Use in Chat"}
                           </button>
                         ) : null}
                       </div>
@@ -3743,6 +3844,7 @@ function App() {
                           )
                         ) : !hasProject ? (
                           <WelcomeWorkspace
+                            locale={locale}
                             embedded
                             recentWorkspaces={recentWorkspaces}
                             onOpenProject={() => void handleOpenExistingProject()}

@@ -883,8 +883,14 @@ button {
 }
 
 /* Activity Bar (Leftmost) */
-.activity-bar {
+.activity-bar-shell {
+  position: relative;
   flex: 0 0 56px;
+}
+
+.activity-bar {
+  width: 56px;
+  height: 100%;
   background: linear-gradient(180deg, #fafcff 0%, #f4f8fc 100%);
   border-right: 1px solid var(--border-light);
   display: flex;
@@ -945,6 +951,67 @@ button {
 .activity-icon-dot-warning {
   background: #d9822b;
   box-shadow: 0 0 0 2px var(--bg-activity-bar);
+}
+
+.activity-settings-popover {
+  position: absolute;
+  left: 64px;
+  bottom: 12px;
+  width: 220px;
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow-lg);
+  z-index: 30;
+}
+
+.activity-settings-popover__eyebrow {
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.activity-settings-popover__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activity-settings-popover__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.activity-settings-popover__options {
+  display: flex;
+  gap: 8px;
+}
+
+.activity-settings-popover__option {
+  flex: 1 1 0;
+  min-height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.activity-settings-popover__option:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.activity-settings-popover__option.is-active {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--accent-primary);
 }
 
 /* Primary Sidebar */
