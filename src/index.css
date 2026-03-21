@@ -2850,17 +2850,17 @@ button {
   position: relative;
   display: inline-flex;
   align-items: center;
-  max-width: min(100%, 180px);
+  max-width: min(100%, 112px);
 }
 
 .ag-runtime-compact-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 180px;
-  height: 26px;
-  padding: 0 8px 0 9px;
-  border-radius: 8px;
+  gap: 4px;
+  max-width: 112px;
+  height: 22px;
+  padding: 0 6px 0 7px;
+  border-radius: 7px;
   border: 1px solid rgba(219, 228, 238, 0.96);
   background: rgba(255, 255, 255, 0.92);
   color: var(--text-secondary);
@@ -2883,12 +2883,12 @@ button {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .ag-runtime-compact-icon {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 9px;
 }
 
 .ag-runtime-compact-label {
@@ -2896,7 +2896,7 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
 }
 
@@ -2929,7 +2929,7 @@ button {
 }
 
 .ag-runtime-vendors--compact {
-  gap: 6px;
+  gap: 4px;
   flex-wrap: nowrap;
 }
 
@@ -2979,16 +2979,16 @@ button {
 .ag-runtime-chip--compact {
   flex: 1 1 0;
   min-width: 0;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 10px;
-  gap: 6px;
-  font-size: 12px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 8px;
+  gap: 4px;
+  font-size: 10px;
   box-shadow: none;
 }
 
 .ag-runtime-chip--compact .ag-runtime-chip-icon {
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .ag-runtime-inline-model {
@@ -3085,14 +3085,14 @@ button {
 
 .ag-runtime-model-menu--compact {
   top: auto;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   left: auto;
   right: 0;
-  width: min(332px, calc(100vw - 28px));
-  gap: 4px;
-  padding: 6px;
-  border-radius: 14px;
-  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
+  width: min(220px, calc(100vw - 20px));
+  gap: 3px;
+  padding: 4px;
+  border-radius: 12px;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.13);
 }
 
 .ag-runtime-model-menu-head {
@@ -3105,8 +3105,8 @@ button {
 }
 
 .ag-runtime-model-menu-head--compact {
-  gap: 8px;
-  padding-bottom: 6px;
+  gap: 6px;
+  padding-bottom: 5px;
   margin-bottom: 2px;
 }
 
@@ -3124,7 +3124,7 @@ button {
 }
 
 .ag-runtime-model-options--compact {
-  gap: 4px;
+  gap: 3px;
 }
 
 .ag-runtime-model-option {
@@ -3155,22 +3155,22 @@ button {
 
 .ag-runtime-model-option--compact {
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 6px 7px;
+  border-radius: 8px;
 }
 
 .ag-runtime-model-option--compact .ag-runtime-model-option-main {
-  gap: 2px;
+  gap: 1px;
 }
 
 .ag-runtime-model-option--compact .ag-runtime-model-option-title {
-  font-size: 12px;
-  line-height: 1.25;
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .ag-runtime-model-option--compact .ag-runtime-model-option-meta {
-  gap: 6px;
+  gap: 4px;
 }
 
 .ag-runtime-model-option-main {
@@ -3193,12 +3193,12 @@ button {
 }
 
 .ag-runtime-model-option-desc--compact {
-  font-size: 11px;
-  line-height: 1.25;
+  font-size: 9px;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 110px;
 }
 
 .ag-runtime-model-option-meta {
@@ -3218,8 +3218,8 @@ button {
 }
 
 .ag-runtime-model-option--compact .ag-runtime-model-option-badge {
-  padding: 2px 6px;
-  font-size: 9.5px;
+  padding: 1px 5px;
+  font-size: 8px;
 }
 
 .ag-runtime-model-option-check {
@@ -3229,7 +3229,24 @@ button {
 }
 
 .ag-runtime-model-option--compact .ag-runtime-model-option-check {
-  font-size: 12px;
+  font-size: 10px;
+}
+
+.ag-runtime-model-menu--compact .ag-runtime-status {
+  padding: 4px 7px;
+  font-size: 9px;
+}
+
+.ag-runtime-model-menu--compact .ag-runtime-refresh {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 9px;
+}
+
+.ag-runtime-model-menu--compact .ag-runtime-help {
+  margin-top: 4px;
+  font-size: 9px;
+  line-height: 1.35;
 }
 
 .ag-runtime-refresh {
@@ -4398,11 +4415,11 @@ button {
   .ag-runtime-model-menu--compact {
     left: auto;
     right: 0;
-    width: min(320px, calc(100vw - 20px));
+    width: min(208px, calc(100vw - 16px));
   }
 
   .ag-runtime-compact-trigger {
-    max-width: 156px;
+    max-width: 104px;
   }
 
   .ag-session-actions {
