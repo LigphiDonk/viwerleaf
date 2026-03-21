@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AppMenuAction,
   AppMenuState,
+  AgentTaskContext,
   AgentMessage,
   AgentProfileId,
   AgentRunResult,
@@ -19,6 +20,7 @@ import type {
   ProjectFile,
   ProfileConfig,
   ProviderConfig,
+  ResearchTaskUpdateChanges,
   SkillManifest,
   StreamChunk,
   SyncLocation,
@@ -224,9 +226,18 @@ export const desktop = {
     selectedText: string,
     userMessage?: string,
     sessionId?: string,
+    taskMode?: boolean,
+    taskContext?: AgentTaskContext | null,
   ) {
-    return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText, userMessage, sessionId }, () =>
-      mockRuntime.runAgent(profileId, filePath, selectedText, userMessage, sessionId),
+    return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText, userMessage, sessionId, taskMode, taskContext }, () =>
+      mockRuntime.runAgent(profileId, filePath, selectedText, userMessage, sessionId, taskMode, taskContext),
+    );
+  },
+  applyResearchTaskSuggestion(taskId: string, changes: ResearchTaskUpdateChanges, workingMemory?: string) {
+    return runOrMock<WorkspaceSnapshot>(
+      "apply_research_task_suggestion",
+      { request: { taskId, changes, workingMemory } },
+      () => mockRuntime.applyResearchTaskSuggestion(taskId, changes, workingMemory),
     );
   },
   applyAgentPatch(filePath: string, content: string) {

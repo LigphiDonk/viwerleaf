@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { desktop } from "../lib/desktop";
 import { useStableCallback as useEffectEvent } from "./useStableCallback";
 import type {
+  AgentTaskContext,
   AgentMessage,
   AgentProfile,
   AgentProfileId,
@@ -73,6 +74,8 @@ interface UseAgentChatParams {
   snapshot: WorkspaceSnapshot | null;
   activeFile: ProjectFile | null;
   selectedText: string;
+  taskMode?: boolean;
+  activeTaskContext?: AgentTaskContext | null;
   cursorLine: number;
   replaceFileContent: (path: string, content: string) => void;
   addDirtyPath: (path: string) => void;
@@ -95,7 +98,10 @@ export interface AgentChatState {
   pendingPatch: { filePath: string; content: string; summary: string; diff?: DiffLine[] } | null;
   setActiveProfileId: (profileId: AgentProfileId) => void;
   handleRunAgent: () => Promise<void>;
-  handleSendMessage: (text: string) => Promise<void>;
+  handleSendMessage: (
+    text: string,
+    options?: { taskMode?: boolean; taskContext?: AgentTaskContext | null },
+  ) => Promise<void>;
   handleNewSession: () => void;
   handleSelectSession: (sessionId: string) => Promise<void>;
   handleApplyPatch: () => Promise<void>;
@@ -108,6 +114,8 @@ export function useAgentChat({
   snapshot,
   activeFile,
   selectedText,
+  taskMode = false,
+  activeTaskContext = null,
   replaceFileContent,
 }: UseAgentChatParams): AgentChatState {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -451,6 +459,8 @@ export function useAgentChat({
         selectedText,
         undefined,
         activeSessionId || undefined,
+        taskMode,
+        activeTaskContext,
       );
       const nextSessionId = result.sessionId ?? activeSessionId;
       if (nextSessionId) {
@@ -499,10 +509,16 @@ export function useAgentChat({
     setIsStreaming(false);
   });
 
-  const handleSendMessage = useEffectEvent(async (text: string) => {
+  const handleSendMessage = useEffectEvent(async (
+    text: string,
+    options?: { taskMode?: boolean; taskContext?: AgentTaskContext | null },
+  ) => {
     if (isStreaming) {
       return;
     }
+
+    const nextTaskMode = options?.taskMode ?? taskMode;
+    const nextTaskContext = options?.taskContext ?? activeTaskContext;
 
     setIsStreaming(true);
     resetStreamState();
@@ -601,6 +617,8 @@ export function useAgentChat({
         selectedText,
         text,
         activeSessionId || undefined,
+        nextTaskMode,
+        nextTaskContext,
       );
       const nextSessionId = result.sessionId ?? activeSessionId;
       if (nextSessionId) {

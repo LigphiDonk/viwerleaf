@@ -10,6 +10,8 @@ export interface ResearchStageNodeData extends Record<string, unknown> {
 export interface ResearchTaskNodeData extends Record<string, unknown> {
   kind: "task";
   task: ResearchTask;
+  isCurrentTask?: boolean;
+  onEnterTask?: (task: ResearchTask) => void;
 }
 
 export type ResearchStageNode = Node<ResearchStageNodeData, "researchStage">;
@@ -28,7 +30,7 @@ const STAGE_CENTER_X = 760;
 const STAGE_NODE_WIDTH = 300;
 const STAGE_NODE_HEIGHT = 182;
 const TASK_NODE_WIDTH = 250;
-const TASK_NODE_HEIGHT = 186;
+const TASK_NODE_HEIGHT = 228;
 const TASK_COLUMN_GAP = 56;
 const TASK_ROW_GAP = 104;
 const STAGE_TO_TASK_GAP = 118;

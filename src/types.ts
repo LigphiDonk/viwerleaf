@@ -439,6 +439,10 @@ export interface ResearchTask {
   suggestedSkills: string[];
   nextActionPrompt: string;
   artifactPaths: string[];
+  taskPrompt?: string;
+  contextNotes?: string;
+  lastUpdatedAt?: string;
+  agentEntryLabel?: string;
 }
 
 export interface ResearchTaskCounts {
@@ -477,6 +481,40 @@ export interface ResearchCanvasSnapshot {
   instancePath?: string | null;
   briefTopic: string;
   briefGoal: string;
+  systemPrompt?: string;
+  workingMemory?: string;
+}
+
+export interface ResearchTaskUpdateChanges {
+  status?: string;
+  description?: string;
+  inputsNeeded?: string[];
+  artifactPaths?: string[];
+  suggestedSkills?: string[];
+  nextActionPrompt?: string;
+  contextNotes?: string;
+  taskPrompt?: string;
+}
+
+export interface TaskUpdateSuggestion {
+  taskId: string;
+  reason: string;
+  confidence?: number;
+  changes: ResearchTaskUpdateChanges;
+  workingMemory?: string;
+}
+
+export interface AgentTaskContext {
+  taskId: string;
+  title: string;
+  stage: ResearchStage;
+  description: string;
+  nextActionPrompt?: string;
+  taskPrompt?: string;
+  contextNotes?: string;
+  suggestedSkills?: string[];
+  inputsNeeded?: string[];
+  artifactPaths?: string[];
 }
 
 export interface WorkspaceSnapshot {

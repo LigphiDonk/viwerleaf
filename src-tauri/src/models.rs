@@ -311,6 +311,31 @@ pub struct AgentContext {
     pub project_root: String,
     pub active_file_path: String,
     pub selected_text: String,
+    #[serde(default)]
+    pub task_mode: bool,
+    #[serde(default)]
+    pub task_context: Option<AgentTaskContext>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTaskContext {
+    pub task_id: String,
+    pub title: String,
+    pub stage: String,
+    pub description: String,
+    #[serde(default)]
+    pub next_action_prompt: String,
+    #[serde(default)]
+    pub task_prompt: String,
+    #[serde(default)]
+    pub context_notes: String,
+    #[serde(default)]
+    pub suggested_skills: Vec<String>,
+    #[serde(default)]
+    pub inputs_needed: Vec<String>,
+    #[serde(default)]
+    pub artifact_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -436,6 +461,14 @@ pub struct ResearchTask {
     pub next_action_prompt: String,
     #[serde(default)]
     pub artifact_paths: Vec<String>,
+    #[serde(default)]
+    pub task_prompt: String,
+    #[serde(default)]
+    pub context_notes: String,
+    #[serde(default)]
+    pub last_updated_at: String,
+    #[serde(default)]
+    pub agent_entry_label: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -480,6 +513,31 @@ pub struct ResearchCanvasSnapshot {
     pub instance_path: Option<String>,
     pub brief_topic: String,
     pub brief_goal: String,
+    #[serde(default)]
+    pub system_prompt: String,
+    #[serde(default)]
+    pub working_memory: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchTaskUpdateChanges {
+    pub status: Option<String>,
+    pub description: Option<String>,
+    pub inputs_needed: Option<Vec<String>>,
+    pub artifact_paths: Option<Vec<String>>,
+    pub suggested_skills: Option<Vec<String>>,
+    pub next_action_prompt: Option<String>,
+    pub context_notes: Option<String>,
+    pub task_prompt: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyResearchTaskSuggestionRequest {
+    pub task_id: String,
+    pub changes: ResearchTaskUpdateChanges,
+    pub working_memory: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

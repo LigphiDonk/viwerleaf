@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::models::{
-    AgentContext, AgentMessage, AgentProvider, AgentRequest,
+    AgentContext, AgentMessage, AgentProvider, AgentRequest, AgentTaskContext,
     AgentRunResult, AgentSessionSummary, StreamChunk, UsageInfo,
 };
 use crate::services::{profile, provider, sidecar, skill};
@@ -78,6 +78,8 @@ pub fn run_agent(
     file_path: &str,
     selected_text: &str,
     user_message: Option<&str>,
+    task_mode: bool,
+    task_context: Option<&AgentTaskContext>,
 ) -> Result<AgentRunResult> {
     let project_root = {
         let config = state
@@ -97,6 +99,7 @@ pub fn run_agent(
         &prov.vendor,
         Path::new(&project_root),
         &profile.skill_ids,
+        task_context,
     )
     .map_err(anyhow::Error::msg)?;
     drop(conn);
@@ -137,6 +140,8 @@ pub fn run_agent(
             project_root: project_root.clone(),
             active_file_path: file_path.to_string(),
             selected_text: selected_text.to_string(),
+            task_mode,
+            task_context: task_context.cloned(),
         },
     };
     let payload = serde_json::to_string(&request)?;

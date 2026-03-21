@@ -80,6 +80,7 @@ pub fn run() {
             commands::switch_project,
             commands::create_project,
             commands::ensure_research_scaffold,
+            commands::apply_research_task_suggestion,
             commands::launch_workspace_window,
             commands::sync_app_menu,
             commands::save_file,

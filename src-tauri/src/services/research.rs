@@ -2,13 +2,14 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
 use crate::models::{
-    ResearchBootstrapState, ResearchCanvasSnapshot, ResearchStageSummary, ResearchTask,
+    ApplyResearchTaskSuggestionRequest, ResearchBootstrapState, ResearchCanvasSnapshot,
+    ResearchStageSummary, ResearchTask,
     ResearchTaskCounts,
 };
 
@@ -38,6 +39,9 @@ struct BriefMeta {
     topic: Option<String>,
     goal: Option<String>,
     pipeline: Option<PipelineMeta>,
+    system_prompt: Option<String>,
+    working_memory: Option<String>,
+    interaction_rules: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,6 +265,16 @@ fn default_research_brief(project_title: &str, start_stage: &str) -> Value {
         "version": 1,
         "topic": project_title,
         "goal": "Turn this topic into a traceable research workflow inside ViewerLeaf.",
+        "systemPrompt": format!(
+            "You are the shared research agent for the project `{project_title}`. Plan and execute the project as a staged scientific workflow. Keep outputs evidence-based, traceable, and aligned with the project goal."
+        ),
+        "workingMemory": "Project initialized. Use this field to keep a concise rolling summary of validated findings, open questions, and current decisions.",
+        "interactionRules": [
+            "Prefer evidence and traceability over speed.",
+            "Do not fabricate papers, citations, datasets, metrics, or results.",
+            "When a task is active, optimize for that task while preserving project-wide consistency.",
+            "Propose task updates only when the project state materially changes."
+        ],
         "pipeline": {
             "startStage": start_stage,
             "currentStage": start_stage
@@ -317,134 +331,142 @@ fn build_next_action_prompt(stage: &str, task_type: &str, suggested_skills: &[St
     )
 }
 
+fn default_task_prompt(
+    stage: &str,
+    title: &str,
+    description: &str,
+    next_action_prompt: &str,
+) -> String {
+    format!(
+        "You are working on the `{title}` task in the `{stage}` stage.\nGoal: {description}\nExecution rule: keep outputs traceable to project files, papers, experiments, or notes.\nPreferred next action: {next_action_prompt}"
+    )
+}
+
+fn dedup_strings(values: &[String]) -> Vec<String> {
+    let mut out = values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    out.sort();
+    out.dedup();
+    out
+}
+
 fn default_tasks(start_stage: &str) -> Vec<ResearchTask> {
+    let make_task = |
+        id: &str,
+        title: &str,
+        description: &str,
+        stage: &str,
+        priority: &str,
+        dependencies: Vec<String>,
+        task_type: &str,
+        inputs_needed: Vec<String>,
+        artifact_paths: Vec<String>,
+    | {
+        let suggested_skills = recommended_skills(stage, task_type);
+        let next_action_prompt = build_next_action_prompt(stage, task_type, &suggested_skills);
+        let task_prompt = default_task_prompt(stage, title, description, &next_action_prompt);
+        ResearchTask {
+            id: id.into(),
+            title: title.into(),
+            description: description.into(),
+            status: "pending".into(),
+            stage: stage.into(),
+            priority: priority.into(),
+            dependencies,
+            task_type: task_type.into(),
+            inputs_needed,
+            suggested_skills,
+            next_action_prompt,
+            artifact_paths,
+            task_prompt,
+            context_notes: String::new(),
+            last_updated_at: String::new(),
+            agent_entry_label: "Enter Agent".into(),
+        }
+    };
+
     let all_tasks = vec![
-        ResearchTask {
-            id: "survey-1".into(),
-            title: "Define the survey boundary".into(),
-            description: "Clarify topic scope, target venue, and screening criteria.".into(),
-            status: "pending".into(),
-            stage: "survey".into(),
-            priority: "high".into(),
-            dependencies: vec![],
-            task_type: "exploration".into(),
-            inputs_needed: vec!["topic boundary".into(), "target venue".into()],
-            suggested_skills: recommended_skills("survey", "exploration"),
-            next_action_prompt: build_next_action_prompt(
-                "survey",
-                "exploration",
-                &recommended_skills("survey", "exploration"),
-            ),
-            artifact_paths: vec![],
-        },
-        ResearchTask {
-            id: "survey-2".into(),
-            title: "Screen core literature".into(),
-            description: "Keep traceable papers, baseline methods, and open gaps.".into(),
-            status: "pending".into(),
-            stage: "survey".into(),
-            priority: "high".into(),
-            dependencies: vec!["survey-1".into()],
-            task_type: "analysis".into(),
-            inputs_needed: vec!["seed paper list".into()],
-            suggested_skills: recommended_skills("survey", "analysis"),
-            next_action_prompt: build_next_action_prompt(
-                "survey",
-                "analysis",
-                &recommended_skills("survey", "analysis"),
-            ),
-            artifact_paths: vec![],
-        },
-        ResearchTask {
-            id: "ideation-1".into(),
-            title: "Extract a publishable angle".into(),
-            description: "Turn the survey into a concrete hypothesis or contribution.".into(),
-            status: "pending".into(),
-            stage: "ideation".into(),
-            priority: "high".into(),
-            dependencies: vec!["survey-2".into()],
-            task_type: "analysis".into(),
-            inputs_needed: vec!["gap summary".into()],
-            suggested_skills: recommended_skills("ideation", "analysis"),
-            next_action_prompt: build_next_action_prompt(
-                "ideation",
-                "analysis",
-                &recommended_skills("ideation", "analysis"),
-            ),
-            artifact_paths: vec![],
-        },
-        ResearchTask {
-            id: "experiment-1".into(),
-            title: "Design the experiment plan".into(),
-            description: "Define implementation scope, datasets, metrics, and ablations.".into(),
-            status: "pending".into(),
-            stage: "experiment".into(),
-            priority: "high".into(),
-            dependencies: vec!["ideation-1".into()],
-            task_type: "implementation".into(),
-            inputs_needed: vec!["chosen idea".into()],
-            suggested_skills: recommended_skills("experiment", "implementation"),
-            next_action_prompt: build_next_action_prompt(
-                "experiment",
-                "implementation",
-                &recommended_skills("experiment", "implementation"),
-            ),
-            artifact_paths: vec![],
-        },
-        ResearchTask {
-            id: "experiment-2".into(),
-            title: "Prepare implementation and analysis notes".into(),
-            description: "Break the experiment plan into build and analysis checkpoints.".into(),
-            status: "pending".into(),
-            stage: "experiment".into(),
-            priority: "medium".into(),
-            dependencies: vec!["experiment-1".into()],
-            task_type: "analysis".into(),
-            inputs_needed: vec!["experiment plan".into()],
-            suggested_skills: recommended_skills("experiment", "analysis"),
-            next_action_prompt: build_next_action_prompt(
-                "experiment",
-                "analysis",
-                &recommended_skills("experiment", "analysis"),
-            ),
-            artifact_paths: vec![],
-        },
-        ResearchTask {
-            id: "publication-1".into(),
-            title: "Move into the paper workspace".into(),
-            description: "Translate the validated research state into a paper-writing checklist.".into(),
-            status: "pending".into(),
-            stage: "publication".into(),
-            priority: "high".into(),
-            dependencies: vec!["experiment-2".into()],
-            task_type: "writing".into(),
-            inputs_needed: vec!["validated claims".into(), "figures".into()],
-            suggested_skills: recommended_skills("publication", "writing"),
-            next_action_prompt: build_next_action_prompt(
-                "publication",
-                "writing",
-                &recommended_skills("publication", "writing"),
-            ),
-            artifact_paths: vec!["main.tex".into()],
-        },
-        ResearchTask {
-            id: "promotion-1".into(),
-            title: "Prepare downstream deliverables".into(),
-            description: "Create slides, summaries, or release notes after the paper draft is stable.".into(),
-            status: "pending".into(),
-            stage: "promotion".into(),
-            priority: "medium".into(),
-            dependencies: vec!["publication-1".into()],
-            task_type: "delivery".into(),
-            inputs_needed: vec!["paper draft".into()],
-            suggested_skills: recommended_skills("promotion", "delivery"),
-            next_action_prompt: build_next_action_prompt(
-                "promotion",
-                "delivery",
-                &recommended_skills("promotion", "delivery"),
-            ),
-            artifact_paths: vec![],
-        },
+        make_task(
+            "survey-1",
+            "Define the survey boundary",
+            "Clarify topic scope, target venue, and screening criteria.",
+            "survey",
+            "high",
+            vec![],
+            "exploration",
+            vec!["topic boundary".into(), "target venue".into()],
+            vec![],
+        ),
+        make_task(
+            "survey-2",
+            "Screen core literature",
+            "Keep traceable papers, baseline methods, and open gaps.",
+            "survey",
+            "high",
+            vec!["survey-1".into()],
+            "analysis",
+            vec!["seed paper list".into()],
+            vec![],
+        ),
+        make_task(
+            "ideation-1",
+            "Extract a publishable angle",
+            "Turn the survey into a concrete hypothesis or contribution.",
+            "ideation",
+            "high",
+            vec!["survey-2".into()],
+            "analysis",
+            vec!["gap summary".into()],
+            vec![],
+        ),
+        make_task(
+            "experiment-1",
+            "Design the experiment plan",
+            "Define implementation scope, datasets, metrics, and ablations.",
+            "experiment",
+            "high",
+            vec!["ideation-1".into()],
+            "implementation",
+            vec!["chosen idea".into()],
+            vec![],
+        ),
+        make_task(
+            "experiment-2",
+            "Prepare implementation and analysis notes",
+            "Break the experiment plan into build and analysis checkpoints.",
+            "experiment",
+            "medium",
+            vec!["experiment-1".into()],
+            "analysis",
+            vec!["experiment plan".into()],
+            vec![],
+        ),
+        make_task(
+            "publication-1",
+            "Move into the paper workspace",
+            "Translate the validated research state into a paper-writing checklist.",
+            "publication",
+            "high",
+            vec!["experiment-2".into()],
+            "writing",
+            vec!["validated claims".into(), "figures".into()],
+            vec!["main.tex".into()],
+        ),
+        make_task(
+            "promotion-1",
+            "Prepare downstream deliverables",
+            "Create slides, summaries, or release notes after the paper draft is stable.",
+            "promotion",
+            "medium",
+            vec!["publication-1".into()],
+            "delivery",
+            vec!["paper draft".into()],
+            vec![],
+        ),
     ];
 
     let start_index = stage_index(start_stage);
@@ -681,6 +703,14 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
         .as_ref()
         .and_then(|(_, meta)| meta.goal.clone())
         .unwrap_or_else(|| "Turn this topic into a traceable research workflow.".into());
+    let system_prompt = brief
+        .as_ref()
+        .and_then(|(_, meta)| meta.system_prompt.clone())
+        .unwrap_or_default();
+    let working_memory = brief
+        .as_ref()
+        .and_then(|(_, meta)| meta.working_memory.clone())
+        .unwrap_or_default();
     let start_stage = brief
         .as_ref()
         .and_then(|(_, meta)| meta.pipeline.as_ref())
@@ -696,6 +726,17 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
                 task.status = "pending".into();
             }
             task.stage = normalize_stage(Some(&task.stage));
+            if task.task_prompt.trim().is_empty() {
+                task.task_prompt = default_task_prompt(
+                    &task.stage,
+                    &task.title,
+                    &task.description,
+                    &task.next_action_prompt,
+                );
+            }
+            if task.agent_entry_label.trim().is_empty() {
+                task.agent_entry_label = "Enter Agent".into();
+            }
             task
         })
         .collect::<Vec<_>>();
@@ -839,7 +880,89 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
             .then(|| "instance.json".to_string()),
         brief_topic,
         brief_goal,
+        system_prompt,
+        working_memory,
     })
+}
+
+pub fn apply_task_suggestion(root: &Path, request: &ApplyResearchTaskSuggestionRequest) -> Result<()> {
+    let tasks_path = pipeline_root(root).join("tasks").join("tasks.json");
+    let brief_path = pipeline_root(root).join("docs").join("research_brief.json");
+
+    let raw_tasks = fs::read_to_string(&tasks_path)?;
+    let mut tasks_json = serde_json::from_str::<Value>(&raw_tasks)?;
+    let Some(tasks) = tasks_json.get_mut("tasks").and_then(|value| value.as_array_mut()) else {
+        bail!("invalid tasks.json shape");
+    };
+
+    let Some(task_json) = tasks.iter_mut().find(|task| {
+        task.get("id")
+            .and_then(|value| value.as_str())
+            .map(|value| value == request.task_id)
+            .unwrap_or(false)
+    }) else {
+        bail!("task not found: {}", request.task_id);
+    };
+
+    if let Some(status) = request.changes.status.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        task_json["status"] = Value::String(status.to_string());
+    }
+    if let Some(description) = request.changes.description.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        task_json["description"] = Value::String(description.to_string());
+    }
+    if let Some(inputs_needed) = request.changes.inputs_needed.as_ref() {
+        task_json["inputsNeeded"] = serde_json::to_value(dedup_strings(inputs_needed))?;
+    }
+    if let Some(artifact_paths) = request.changes.artifact_paths.as_ref() {
+        task_json["artifactPaths"] = serde_json::to_value(dedup_strings(artifact_paths))?;
+    }
+    if let Some(suggested_skills) = request.changes.suggested_skills.as_ref() {
+        task_json["suggestedSkills"] = serde_json::to_value(dedup_strings(suggested_skills))?;
+    }
+    if let Some(next_action_prompt) = request
+        .changes
+        .next_action_prompt
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        task_json["nextActionPrompt"] = Value::String(next_action_prompt.to_string());
+    }
+    if let Some(context_notes) = request
+        .changes
+        .context_notes
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        task_json["contextNotes"] = Value::String(context_notes.to_string());
+    }
+    if let Some(task_prompt) = request
+        .changes
+        .task_prompt
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        task_json["taskPrompt"] = Value::String(task_prompt.to_string());
+    }
+    task_json["lastUpdatedAt"] = Value::String(iso_now());
+
+    fs::write(&tasks_path, serde_json::to_string_pretty(&tasks_json)?)?;
+
+    if let Some(working_memory) = request
+        .working_memory
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let raw_brief = fs::read_to_string(&brief_path)?;
+        let mut brief_json = serde_json::from_str::<Value>(&raw_brief)?;
+        brief_json["workingMemory"] = Value::String(working_memory.to_string());
+        fs::write(&brief_path, serde_json::to_string_pretty(&brief_json)?)?;
+    }
+
+    Ok(())
 }
 
 fn iso_now() -> String {

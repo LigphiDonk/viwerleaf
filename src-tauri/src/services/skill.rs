@@ -7,7 +7,7 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 use walkdir::WalkDir;
 
-use crate::models::{SkillManifest, SkillResourceFlags, SkillUpstream};
+use crate::models::{AgentTaskContext, SkillManifest, SkillResourceFlags, SkillUpstream};
 
 #[derive(Debug, Clone)]
 struct ParsedSkillFile {
@@ -208,11 +208,12 @@ pub fn load_skill_prompts(
     vendor: &str,
     project_root: &Path,
     skill_ids: &[String],
+    task_context: Option<&AgentTaskContext>,
 ) -> Result<String, String> {
     let skills = resolve_enabled_skills(conn, skill_ids)?;
     let mut sections = Vec::new();
 
-    let stage_context = build_project_stage_context(project_root);
+    let stage_context = build_project_stage_context(project_root, task_context);
     if !stage_context.is_empty() {
         sections.push(format!(
             "[[VIEWERLEAF_STAGE_CONTEXT]]\n{}\n[[/VIEWERLEAF_STAGE_CONTEXT]]",
@@ -479,7 +480,7 @@ fn resolve_enabled_skills(conn: &Connection, skill_ids: &[String]) -> Result<Vec
         .collect())
 }
 
-fn build_project_stage_context(project_root: &Path) -> String {
+fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentTaskContext>) -> String {
     let brief_path = project_root
         .join(".pipeline")
         .join("docs")
@@ -490,11 +491,20 @@ fn build_project_stage_context(project_root: &Path) -> String {
         .join("tasks.json");
 
     let mut lines = Vec::new();
+    let mut current_stage_value = String::new();
 
     if let Ok(raw) = fs::read_to_string(brief_path) {
         if let Ok(value) = serde_json::from_str::<JsonValue>(&raw) {
             let topic = value.get("topic").and_then(|value| value.as_str()).unwrap_or("");
             let goal = value.get("goal").and_then(|value| value.as_str()).unwrap_or("");
+            let system_prompt = value
+                .get("systemPrompt")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let working_memory = value
+                .get("workingMemory")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             let pipeline = value.get("pipeline").cloned().unwrap_or(JsonValue::Null);
             let current_stage = pipeline
                 .get("currentStage")
@@ -508,7 +518,25 @@ fn build_project_stage_context(project_root: &Path) -> String {
                 lines.push(format!("goal: {goal}"));
             }
             if !current_stage.is_empty() {
+                current_stage_value = current_stage.to_string();
                 lines.push(format!("currentStage: {current_stage}"));
+            }
+            if !system_prompt.is_empty() {
+                lines.push(format!("globalSystemPrompt: {system_prompt}"));
+            }
+            if !working_memory.is_empty() {
+                lines.push(format!("workingMemory: {working_memory}"));
+            }
+            if let Some(rules) = value.get("interactionRules").and_then(|value| value.as_array()) {
+                let rule_lines = rules
+                    .iter()
+                    .filter_map(|rule| rule.as_str())
+                    .map(|rule| format!("- {rule}"))
+                    .collect::<Vec<_>>();
+                if !rule_lines.is_empty() {
+                    lines.push("interactionRules:".into());
+                    lines.extend(rule_lines);
+                }
             }
         }
     }
@@ -516,6 +544,28 @@ fn build_project_stage_context(project_root: &Path) -> String {
     if let Ok(raw) = fs::read_to_string(tasks_path) {
         if let Ok(value) = serde_json::from_str::<JsonValue>(&raw) {
             if let Some(tasks) = value.get("tasks").and_then(|value| value.as_array()) {
+                let current_stage_tasks = if current_stage_value.is_empty() {
+                    Vec::new()
+                } else {
+                    tasks.iter()
+                        .filter(|task| {
+                            task.get("stage")
+                                .and_then(|value| value.as_str())
+                                .map(|stage| stage == current_stage_value)
+                                .unwrap_or(false)
+                                && task.get("status")
+                                    .and_then(|value| value.as_str())
+                                    .map(|status| matches!(status, "" | "pending" | "in-progress" | "review"))
+                                    .unwrap_or(true)
+                        })
+                        .filter_map(|task| task.get("title").and_then(|value| value.as_str()))
+                        .take(3)
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                };
+                if !current_stage_tasks.is_empty() {
+                    lines.push(format!("currentStageOpenTasks: {}", current_stage_tasks.join(" | ")));
+                }
                 if let Some(next_task) = tasks.iter().find(|task| {
                     task.get("status")
                         .and_then(|status| status.as_str())
@@ -547,6 +597,37 @@ fn build_project_stage_context(project_root: &Path) -> String {
                 }
             }
         }
+    }
+
+    if let Some(task) = task_context {
+        lines.push("taskMode: true".into());
+        lines.push(format!("activeTaskId: {}", task.task_id));
+        lines.push(format!("activeTaskStage: {}", task.stage));
+        lines.push(format!("activeTaskTitle: {}", task.title));
+        if !task.description.trim().is_empty() {
+            lines.push(format!("activeTaskDescription: {}", task.description.trim()));
+        }
+        if !task.next_action_prompt.trim().is_empty() {
+            lines.push(format!("activeTaskNextAction: {}", task.next_action_prompt.trim()));
+        }
+        if !task.task_prompt.trim().is_empty() {
+            lines.push(format!("activeTaskPrompt: {}", task.task_prompt.trim()));
+        }
+        if !task.context_notes.trim().is_empty() {
+            lines.push(format!("activeTaskContextNotes: {}", task.context_notes.trim()));
+        }
+        if !task.inputs_needed.is_empty() {
+            lines.push(format!("activeTaskInputs: {}", task.inputs_needed.join(" | ")));
+        }
+        if !task.suggested_skills.is_empty() {
+            lines.push(format!("activeTaskSkills: {}", task.suggested_skills.join(", ")));
+        }
+        if !task.artifact_paths.is_empty() {
+            lines.push(format!("activeTaskArtifacts: {}", task.artifact_paths.join(", ")));
+        }
+        lines.push("taskUpdateProtocol: When the active task state materially changes, append a fenced code block with language `viewerleaf_task_update` containing JSON with keys `taskId`, `reason`, `confidence`, `changes`, and optional `workingMemory`. Only use these change keys: status, description, inputsNeeded, artifactPaths, suggestedSkills, nextActionPrompt, contextNotes, taskPrompt. Never propose updates for id, stage, dependencies, title, or priority.".into());
+    } else {
+        lines.push("taskMode: false".into());
     }
 
     lines.join("\n")
@@ -840,7 +921,7 @@ summary: Summary
         .expect("failed to insert");
 
         let prompt =
-            load_skill_prompts(&conn, "codex", &root, &["skill-one".into()]).expect("render");
+            load_skill_prompts(&conn, "codex", &root, &["skill-one".into()], None).expect("render");
         assert!(prompt.contains("currentStage: survey"));
         assert!(prompt.contains("[[PROJECT_AGENTS_MD]]"));
         assert!(prompt.contains("[[SKILL:skill-one]]"));

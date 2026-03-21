@@ -4024,6 +4024,81 @@ button {
   line-height: 1.55;
 }
 
+.ag-task-suggestion-card {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.06);
+}
+
+.ag-task-suggestion-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ag-task-suggestion-card__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+
+.ag-task-suggestion-card__title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ag-task-suggestion-card__confidence {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ag-task-suggestion-card__reason {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.ag-task-suggestion-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ag-task-suggestion-card__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ag-task-suggestion-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 /* ─── Diff view ────────────────────────────────────────── */
 .ag-diff-stats {
   display: inline-flex;
@@ -4176,6 +4251,57 @@ button {
 /* ─── Autocomplete menu (@ mentions, / commands) ──────── */
 .ag-input-wrap {
   position: relative;
+}
+
+.ag-task-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: linear-gradient(180deg, rgba(240, 253, 250, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.ag-task-mode-bar__copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ag-task-mode-bar__copy strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.ag-task-mode-bar__copy span:last-child {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.ag-task-mode-bar__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+}
+
+.ag-task-mode-bar__actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .ag-autocomplete-menu {
   position: absolute;
@@ -6262,7 +6388,7 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
 .research-task-node {
   width: 250px;
   min-width: 250px;
-  min-height: 186px;
+  min-height: 228px;
   padding: 16px 16px 14px;
 }
 
@@ -6316,6 +6442,30 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
   font-size: 11px;
 }
 
+.research-task-node__actions {
+  margin-top: 12px;
+  padding-left: 8px;
+}
+
+.research-task-node__agent-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.96);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.research-task-node__agent-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.12);
+  background: rgba(219, 234, 254, 0.98);
+}
+
 .research-node-chips {
   display: flex;
   flex-wrap: wrap;
@@ -6359,6 +6509,11 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
 .research-stage-node.is-selected,
 .research-task-node.is-selected {
   transform: translateY(-1px);
+}
+
+.research-task-node.is-current-task {
+  border-color: rgba(15, 118, 110, 0.34);
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.12), 0 18px 28px rgba(15, 118, 110, 0.09);
 }
 
 .research-stage-node.is-queued,

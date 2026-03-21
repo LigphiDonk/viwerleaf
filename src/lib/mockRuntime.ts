@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import type {
   AppMenuState,
+  AgentTaskContext,
   AgentMessage,
   AgentProfile,
   AgentProfileId,
@@ -21,6 +22,7 @@ import type {
   ResearchStage,
   ResearchStageSummary,
   ResearchTask,
+  ResearchTaskUpdateChanges,
   SkillManifest,
   SyncLocation,
   WorkspaceSnapshot,
@@ -218,6 +220,11 @@ const researchTasks: ResearchTask[] = [
     artifactPaths: [
       ".viewerleaf/research/Survey/reports/survey-notes.md",
     ],
+    taskPrompt:
+      "Define the survey boundary for this project. Clarify scope, venue, screening criteria, and traceable inputs.",
+    contextNotes: "The initial survey scope has been fixed and the note file already exists.",
+    lastUpdatedAt: "2026-03-20T09:00:00Z",
+    agentEntryLabel: "进入 Agent",
   },
   {
     id: "ideation-1",
@@ -235,6 +242,11 @@ const researchTasks: ResearchTask[] = [
     artifactPaths: [
       ".viewerleaf/research/Ideation/ideas/angle-notes.md",
     ],
+    taskPrompt:
+      "Refine the publishable angle. Use the survey findings to sharpen the hypothesis, novelty, and next experimental commitments.",
+    contextNotes: "Current angle is promising but still needs sharper novelty framing against baseline work.",
+    lastUpdatedAt: "2026-03-21T08:30:00Z",
+    agentEntryLabel: "进入 Agent",
   },
   {
     id: "experiment-1",
@@ -250,6 +262,11 @@ const researchTasks: ResearchTask[] = [
     nextActionPrompt:
       "Use the research-experiment-driver skill to write the implementation and analysis plan.",
     artifactPaths: [],
+    taskPrompt:
+      "Design the experiment plan with datasets, metrics, ablations, and analysis checkpoints linked to the current angle.",
+    contextNotes: "",
+    lastUpdatedAt: "",
+    agentEntryLabel: "进入 Agent",
   },
   {
     id: "publication-1",
@@ -265,6 +282,11 @@ const researchTasks: ResearchTask[] = [
     nextActionPrompt:
       "Use the research-paper-handoff skill to map claims and figures into the LaTeX manuscript.",
     artifactPaths: ["main.tex", "sections/introduction.tex", "refs/references.bib"],
+    taskPrompt:
+      "Translate the validated research state into a paper-writing checklist for the main LaTeX workspace.",
+    contextNotes: "",
+    lastUpdatedAt: "",
+    agentEntryLabel: "进入 Agent",
   },
   {
     id: "promotion-1",
@@ -280,8 +302,31 @@ const researchTasks: ResearchTask[] = [
     nextActionPrompt:
       "Use the research-paper-handoff skill to prepare slides and summary tasks from the manuscript state.",
     artifactPaths: [],
+    taskPrompt:
+      "Prepare slides, summaries, and release material from the stable manuscript state.",
+    contextNotes: "",
+    lastUpdatedAt: "",
+    agentEntryLabel: "进入 Agent",
   },
 ];
+
+const researchBrief = {
+  topic: "ViewerLeaf Research Canvas",
+  goal: "Unify research planning and LaTeX writing.",
+  pipeline: {
+    startStage: "survey",
+    currentStage: "ideation",
+  },
+  systemPrompt:
+    "You are the shared research agent for ViewerLeaf. Keep the project coherent across survey, ideation, experiment, publication, and promotion.",
+  workingMemory:
+    "Survey scope is stable. The current bottleneck is sharpening the publishable angle and locking the novelty statement.",
+  interactionRules: [
+    "Prefer evidence and traceability over speed.",
+    "Do not fabricate citations or results.",
+    "When a task is active, optimize for that task without losing project context.",
+  ],
+};
 
 function buildMockResearch(): ResearchCanvasSnapshot {
   const artifactPaths: Record<ResearchStage, string[]> = {
@@ -341,10 +386,9 @@ function buildMockResearch(): ResearchCanvasSnapshot {
       hasTasks: true,
     },
     brief: {
-      topic: "ViewerLeaf Research Canvas",
-      goal: "Unify research planning and LaTeX writing.",
+      ...researchBrief,
       pipeline: {
-        startStage: "survey",
+        ...researchBrief.pipeline,
         currentStage,
       },
     },
@@ -358,6 +402,8 @@ function buildMockResearch(): ResearchCanvasSnapshot {
     instancePath: "instance.json",
     briefTopic: "ViewerLeaf Research Canvas",
     briefGoal: "Unify research planning and LaTeX writing.",
+    systemPrompt: researchBrief.systemPrompt,
+    workingMemory: researchBrief.workingMemory,
   };
 }
 
@@ -1034,6 +1080,8 @@ export const mockRuntime = {
     selectedText: string,
     userMessage?: string,
     sessionId?: string,
+    taskMode?: boolean,
+    taskContext?: AgentTaskContext | null,
   ): Promise<AgentRunResult> {
     const resolvedSessionId = ensureSession(profileId, sessionId, userMessage || selectedText || `Run agent on ${filePath}`);
     const userContent = userMessage?.trim() || selectedText.trim() || `Run agent on ${filePath}`;
@@ -1046,7 +1094,20 @@ export const mockRuntime = {
       timestamp: new Date().toISOString(),
     });
 
-    const summary = createRunSummary(profileId, selectedText);
+    const taskUpdateBlock = taskMode && taskContext
+      ? `\n\n\`\`\`viewerleaf_task_update\n${JSON.stringify({
+        taskId: taskContext.taskId,
+        reason: `Advance the ${taskContext.title} task based on the latest discussion.`,
+        confidence: 0.82,
+        changes: {
+          status: "in-progress",
+          contextNotes: `Mock update for ${taskContext.title}.`,
+          nextActionPrompt: taskContext.nextActionPrompt || taskContext.taskPrompt || taskContext.description,
+        },
+        workingMemory: `Working on ${taskContext.title} in the ${taskContext.stage} stage.`,
+      }, null, 2)}\n\`\`\``
+      : "";
+    const summary = `${createRunSummary(profileId, selectedText)}${taskUpdateBlock}`;
     const message: AgentMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
@@ -1086,6 +1147,25 @@ export const mockRuntime = {
       file.content = content;
     }
     return { ok: true };
+  },
+
+  async applyResearchTaskSuggestion(taskId: string, changes: ResearchTaskUpdateChanges, workingMemory?: string) {
+    const task = researchTasks.find((item) => item.id === taskId);
+    if (task) {
+      if (changes.status) task.status = changes.status;
+      if (changes.description) task.description = changes.description;
+      if (changes.inputsNeeded) task.inputsNeeded = Array.from(new Set(changes.inputsNeeded));
+      if (changes.artifactPaths) task.artifactPaths = Array.from(new Set(changes.artifactPaths));
+      if (changes.suggestedSkills) task.suggestedSkills = Array.from(new Set(changes.suggestedSkills));
+      if (changes.nextActionPrompt) task.nextActionPrompt = changes.nextActionPrompt;
+      if (changes.contextNotes) task.contextNotes = changes.contextNotes;
+      if (changes.taskPrompt) task.taskPrompt = changes.taskPrompt;
+      task.lastUpdatedAt = new Date().toISOString();
+    }
+    if (workingMemory) {
+      researchBrief.workingMemory = workingMemory;
+    }
+    return this.openProject();
   },
 
   async listSkills() {

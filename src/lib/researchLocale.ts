@@ -139,13 +139,14 @@ const TASK_COPY: Record<string, Record<AppLocale, Partial<ResearchTask>>> = {
 
 export function localizeResearchTask(task: ResearchTask, locale: AppLocale): ResearchTask {
   const copy = TASK_COPY[task.id]?.[locale];
-  if (!copy) {
-    return task;
-  }
   return {
     ...task,
-    ...copy,
-    inputsNeeded: copy.inputsNeeded ?? task.inputsNeeded,
+    ...(copy ?? {}),
+    inputsNeeded: copy?.inputsNeeded ?? task.inputsNeeded,
+    agentEntryLabel:
+      !task.agentEntryLabel || task.agentEntryLabel === "Enter Agent"
+        ? (locale === "zh-CN" ? "进入 Agent" : "Enter Agent")
+        : task.agentEntryLabel,
   };
 }
 

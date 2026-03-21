@@ -6,7 +6,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::desktop_menu;
 use crate::models::{
-    AgentMessage, AgentRunResult, AgentSessionSummary, AssetResource, CliAgentStatus,
+    AgentMessage, AgentRunResult, AgentSessionSummary, AgentTaskContext,
+    ApplyResearchTaskSuggestionRequest, AssetResource, CliAgentStatus,
     FigureBriefDraft, GeneratedAsset, ProfileConfig, ProjectConfig, ProjectFile, ProviderConfig,
     SkillManifest, TerminalSessionInfo, TestResult, UsageRecord, WorkspaceSnapshot,
 };
@@ -211,6 +212,8 @@ pub fn run_agent(
     file_path: String,
     selected_text: String,
     user_message: Option<String>,
+    task_mode: Option<bool>,
+    task_context: Option<AgentTaskContext>,
 ) -> Result<AgentRunResult, String> {
     // Resolve session_id eagerly so we can return it immediately to the frontend.
     let resolved_session_id = session_id
@@ -235,6 +238,8 @@ pub fn run_agent(
     let file_path2 = file_path.clone();
     let selected_text2 = selected_text.clone();
     let user_message2 = user_message.clone();
+    let task_mode2 = task_mode.unwrap_or(false);
+    let task_context2 = task_context.clone();
 
     // Run the blocking sidecar I/O on a dedicated thread so the command
     // returns immediately and does not freeze the frontend invoke() call.
@@ -248,6 +253,8 @@ pub fn run_agent(
             &file_path2,
             &selected_text2,
             user_message2.as_deref(),
+            task_mode2,
+            task_context2.as_ref(),
         ) {
             let _ = app_handle2.emit(
                 "agent:stream",
@@ -263,6 +270,29 @@ pub fn run_agent(
         message: None,
         suggested_patch: None,
     })
+}
+
+#[tauri::command]
+pub async fn apply_research_task_suggestion(
+    app_handle: AppHandle,
+    request: ApplyResearchTaskSuggestionRequest,
+) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+        research::apply_task_suggestion(Path::new(&root_path), &request).map_err(|err| err.to_string())?;
+        project::load_project_snapshot(&state).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

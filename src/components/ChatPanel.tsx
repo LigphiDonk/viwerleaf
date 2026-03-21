@@ -16,6 +16,7 @@ import {
 } from "../lib/agentCatalog";
 
 import type {
+  AgentTaskContext,
   AgentMessage,
   AgentProfile,
   AgentSessionSummary,
@@ -24,6 +25,7 @@ import type {
   ProjectNode,
   ProviderConfig,
   SkillManifest,
+  TaskUpdateSuggestion,
   UsageRecord,
 } from "../types";
 
@@ -332,6 +334,66 @@ function parseStreamBlocks(raw: string): StreamBlock {
   return { blocks, text, toolCalls, thoughtText };
 }
 
+const TASK_UPDATE_BLOCK_RE = /```viewerleaf_task_update\s*([\s\S]*?)```/gi;
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function sanitizeTaskUpdateSuggestion(value: unknown): TaskUpdateSuggestion | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const taskId = typeof record.taskId === "string" ? record.taskId.trim() : "";
+  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
+  const changes = record.changes && typeof record.changes === "object"
+    ? (record.changes as Record<string, unknown>)
+    : null;
+  if (!taskId || !reason || !changes) {
+    return null;
+  }
+
+  const nextChanges: TaskUpdateSuggestion["changes"] = {};
+  if (typeof changes.status === "string" && changes.status.trim()) nextChanges.status = changes.status.trim();
+  if (typeof changes.description === "string" && changes.description.trim()) nextChanges.description = changes.description.trim();
+  if (isStringArray(changes.inputsNeeded)) nextChanges.inputsNeeded = changes.inputsNeeded.map((item) => item.trim()).filter(Boolean);
+  if (isStringArray(changes.artifactPaths)) nextChanges.artifactPaths = changes.artifactPaths.map((item) => item.trim()).filter(Boolean);
+  if (isStringArray(changes.suggestedSkills)) nextChanges.suggestedSkills = changes.suggestedSkills.map((item) => item.trim()).filter(Boolean);
+  if (typeof changes.nextActionPrompt === "string" && changes.nextActionPrompt.trim()) nextChanges.nextActionPrompt = changes.nextActionPrompt.trim();
+  if (typeof changes.contextNotes === "string" && changes.contextNotes.trim()) nextChanges.contextNotes = changes.contextNotes.trim();
+  if (typeof changes.taskPrompt === "string" && changes.taskPrompt.trim()) nextChanges.taskPrompt = changes.taskPrompt.trim();
+
+  if (Object.keys(nextChanges).length === 0) {
+    return null;
+  }
+
+  return {
+    taskId,
+    reason,
+    confidence: typeof record.confidence === "number" ? record.confidence : undefined,
+    changes: nextChanges,
+    workingMemory: typeof record.workingMemory === "string" && record.workingMemory.trim()
+      ? record.workingMemory.trim()
+      : undefined,
+  };
+}
+
+function extractTaskUpdateSuggestion(raw: string): { content: string; suggestion: TaskUpdateSuggestion | null } {
+  let suggestion: TaskUpdateSuggestion | null = null;
+  const content = raw.replace(TASK_UPDATE_BLOCK_RE, (_match, payload: string) => {
+    if (!suggestion) {
+      try {
+        suggestion = sanitizeTaskUpdateSuggestion(JSON.parse(payload.trim()));
+      } catch {
+        suggestion = null;
+      }
+    }
+    return "";
+  }).trim();
+  return { content, suggestion };
+}
+
 function summarizeToolCall(call: ToolCallBlock) {
   const firstStringArg = (() => {
     if (!call.args) {
@@ -545,7 +607,8 @@ function AssistantMessage({ msg, streaming }: {
   };
 }) {
   const raw = msg?.content ?? streaming?.content ?? "";
-  const parsed = parseStreamBlocks(raw);
+  const extracted = extractTaskUpdateSuggestion(raw);
+  const parsed = parseStreamBlocks(extracted.content);
   const clean = parsed.text;
   const toolCalls = parsed.toolCalls;
   const blocks = parsed.blocks;
@@ -660,6 +723,60 @@ function PatchCard({ summary, diff, onApply, onDismiss }: {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function TaskSuggestionCard({
+  suggestion,
+  activeTask,
+  onApply,
+  onDismiss,
+}: {
+  suggestion: TaskUpdateSuggestion;
+  activeTask?: AgentTaskContext | null;
+  onApply: () => void | Promise<void>;
+  onDismiss: () => void;
+}) {
+  const changeLabels: Array<[keyof TaskUpdateSuggestion["changes"], string]> = [
+    ["status", "状态"],
+    ["description", "描述"],
+    ["inputsNeeded", "输入"],
+    ["artifactPaths", "产物"],
+    ["suggestedSkills", "技能"],
+    ["nextActionPrompt", "下一步"],
+    ["contextNotes", "上下文"],
+    ["taskPrompt", "任务提示词"],
+  ];
+
+  const visibleChanges = changeLabels.filter(([key]) => suggestion.changes[key] !== undefined);
+
+  return (
+    <div className="ag-task-suggestion-card">
+      <div className="ag-task-suggestion-card__head">
+        <div>
+          <div className="ag-task-suggestion-card__eyebrow">任务更新建议</div>
+          <div className="ag-task-suggestion-card__title">
+            {activeTask?.taskId === suggestion.taskId ? activeTask.title : suggestion.taskId}
+          </div>
+        </div>
+        {typeof suggestion.confidence === "number" ? (
+          <span className="ag-task-suggestion-card__confidence">
+            {Math.round(suggestion.confidence * 100)}%
+          </span>
+        ) : null}
+      </div>
+      <div className="ag-task-suggestion-card__reason">{suggestion.reason}</div>
+      <div className="ag-task-suggestion-card__chips">
+        {visibleChanges.map(([key, label]) => (
+          <span key={key} className="ag-task-suggestion-card__chip">{label}</span>
+        ))}
+        {suggestion.workingMemory ? <span className="ag-task-suggestion-card__chip">项目记忆</span> : null}
+      </div>
+      <div className="ag-task-suggestion-card__actions">
+        <button type="button" className="ag-patch-open-btn" onClick={onDismiss}>忽略</button>
+        <button type="button" className="ag-patch-apply-btn" onClick={() => void onApply()}>应用到画布</button>
+      </div>
     </div>
   );
 }
@@ -1179,6 +1296,11 @@ export interface ChatPanelProps {
   onToggleSkill: (skill: SkillManifest) => Promise<void>;
   usageRecords: UsageRecord[];
   projectTree?: ProjectNode[];
+  activeResearchTask?: AgentTaskContext | null;
+  composerPreset?: { id: number; text: string } | null;
+  onExitResearchTaskMode?: () => void;
+  onOpenResearchCanvas?: () => void;
+  onApplyTaskUpdateSuggestion?: (suggestion: TaskUpdateSuggestion) => Promise<void> | void;
 }
 
 export function ChatPanel({
@@ -1192,6 +1314,11 @@ export function ChatPanel({
   streamContent, streamError, isStreaming,
   skills, onToggleSkill,
   usageRecords, projectTree,
+  activeResearchTask,
+  composerPreset,
+  onExitResearchTaskMode,
+  onOpenResearchCanvas,
+  onApplyTaskUpdateSuggestion,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -1199,6 +1326,7 @@ export function ChatPanel({
   const sessionSearchRef = useRef<HTMLInputElement>(null);
   const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
+  const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<string[]>([]);
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
   const filteredSessions = useMemo(() => {
     const keyword = sessionQuery.trim().toLowerCase();
@@ -1210,6 +1338,30 @@ export function ChatPanel({
       return haystacks.some((value) => value.toLowerCase().includes(keyword));
     });
   }, [sessionQuery, sessions]);
+  const latestTaskSuggestion = useMemo(() => {
+    const candidate = [...messages].reverse().find((message) => {
+      if (message.role !== "assistant") {
+        return false;
+      }
+      const { suggestion } = extractTaskUpdateSuggestion(message.content);
+      if (!suggestion) {
+        return false;
+      }
+      const key = `${message.sessionId}:${message.id}:${suggestion.taskId}`;
+      return !dismissedSuggestionKeys.includes(key);
+    });
+    if (!candidate) {
+      return null;
+    }
+    const { suggestion } = extractTaskUpdateSuggestion(candidate.content);
+    if (!suggestion) {
+      return null;
+    }
+    return {
+      key: `${candidate.sessionId}:${candidate.id}:${suggestion.taskId}`,
+      suggestion,
+    };
+  }, [dismissedSuggestionKeys, messages]);
 
   // @ file mention state
   const [showAtMenu, setShowAtMenu] = useState(false);
@@ -1244,6 +1396,32 @@ export function ChatPanel({
   }, [inputText]);
 
   useEffect(() => {
+    if (!composerPreset) {
+      return;
+    }
+    const nextText = composerPreset.text;
+    let focusFrame = 0;
+    const frame = window.requestAnimationFrame(() => {
+      setInputText(nextText);
+      focusFrame = window.requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) {
+          return;
+        }
+        textarea.focus();
+        const nextCursor = nextText.length;
+        textarea.setSelectionRange(nextCursor, nextCursor);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (focusFrame) {
+        window.cancelAnimationFrame(focusFrame);
+      }
+    };
+  }, [composerPreset]);
+
+  useEffect(() => {
     if (!isSessionPickerOpen) {
       return;
     }
@@ -1264,6 +1442,15 @@ export function ChatPanel({
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
   }, [isSessionPickerOpen]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setDismissedSuggestionKeys([]);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeSessionId]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
@@ -1413,6 +1600,28 @@ export function ChatPanel({
         </div>
       </div>
 
+      {activeResearchTask && (
+        <div className="ag-task-mode-bar">
+          <div className="ag-task-mode-bar__copy">
+            <span className="ag-task-mode-bar__eyebrow">任务模式</span>
+            <strong>{activeResearchTask.title}</strong>
+            <span>{activeResearchTask.stage}</span>
+          </div>
+          <div className="ag-task-mode-bar__actions">
+            {onOpenResearchCanvas ? (
+              <button type="button" className="ag-patch-open-btn" onClick={onOpenResearchCanvas}>
+                返回画布
+              </button>
+            ) : null}
+            {onExitResearchTaskMode ? (
+              <button type="button" className="ag-patch-open-btn" onClick={onExitResearchTaskMode}>
+                退出任务模式
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {isSessionPickerOpen && (
         <div
           className="ag-session-picker-backdrop"
@@ -1553,6 +1762,18 @@ export function ChatPanel({
           />
         )}
 
+        {latestTaskSuggestion && onApplyTaskUpdateSuggestion && (
+          <TaskSuggestionCard
+            suggestion={latestTaskSuggestion.suggestion}
+            activeTask={activeResearchTask}
+            onDismiss={() => setDismissedSuggestionKeys((current) => [...current, latestTaskSuggestion.key])}
+            onApply={async () => {
+              await onApplyTaskUpdateSuggestion(latestTaskSuggestion.suggestion);
+              setDismissedSuggestionKeys((current) => [...current, latestTaskSuggestion.key]);
+            }}
+          />
+        )}
+
         <div ref={endRef} />
       </div>
 
@@ -1597,7 +1818,13 @@ export function ChatPanel({
           value={inputText}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder={isStreaming ? "AI 正在回复…" : "Ask anything, @ to mention, / for commands…"}
+          placeholder={
+            isStreaming
+              ? "AI 正在回复…"
+              : activeResearchTask
+                ? `围绕「${activeResearchTask.title}」继续讨论…`
+                : "Ask anything, @ to mention, / for commands…"
+          }
           disabled={isStreaming}
           rows={1}
         />

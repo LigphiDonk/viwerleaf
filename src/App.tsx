@@ -92,6 +92,7 @@ import { useProjectOutline } from "./hooks/useProjectOutline";
 import { useStableCallback as useEffectEvent } from "./hooks/useStableCallback";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import type {
+  AgentTaskContext,
   AppLocale,
   AppMenuAction,
   AppMenuState,
@@ -106,6 +107,7 @@ import type {
   ResearchTask,
   ReviewComment,
   SkillManifest,
+  TaskUpdateSuggestion,
   WorkspaceCollabMetadata,
   WorkspaceEntry,
   WorkspacePaneMode,
@@ -560,6 +562,8 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
   const [workspaceSurface, setWorkspaceSurface] = useState<WorkspaceSurface>("research");
+  const [activeResearchTaskId, setActiveResearchTaskId] = useState<string | null>(null);
+  const [taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
   const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
   const [lastAutoWritingHandoffKey, setLastAutoWritingHandoffKey] = useState("");
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
@@ -570,6 +574,7 @@ function App() {
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null);
   const editorPreviewSplitRef = useRef<HTMLDivElement | null>(null);
   const activityBarShellRef = useRef<HTMLDivElement | null>(null);
+  const taskComposerPresetRef = useRef(0);
 
   const { file: fileAdapter, project: projectAdapter, compile: compileAdapter } = useMemo(
     () => createLocalAdapter(),
@@ -1017,10 +1022,35 @@ function App() {
     revision: collabRevision,
   });
 
+  const activeResearchTask = useMemo(
+    () => snapshot?.research?.tasks.find((task) => task.id === activeResearchTaskId) ?? null,
+    [activeResearchTaskId, snapshot?.research],
+  );
+  const activeAgentTaskContext = useMemo<AgentTaskContext | null>(
+    () =>
+      activeResearchTask
+        ? {
+          taskId: activeResearchTask.id,
+          title: activeResearchTask.title,
+          stage: activeResearchTask.stage,
+          description: activeResearchTask.description,
+          nextActionPrompt: activeResearchTask.nextActionPrompt,
+          taskPrompt: activeResearchTask.taskPrompt,
+          contextNotes: activeResearchTask.contextNotes,
+          suggestedSkills: activeResearchTask.suggestedSkills,
+          inputsNeeded: activeResearchTask.inputsNeeded,
+          artifactPaths: activeResearchTask.artifactPaths,
+        }
+        : null,
+    [activeResearchTask],
+  );
+
   const agentChat = useAgentChat({
     snapshot,
     activeFile,
     selectedText,
+    taskMode: Boolean(activeResearchTask),
+    activeTaskContext: activeAgentTaskContext,
     cursorLine,
     replaceFileContent: replaceDocumentContent,
     addDirtyPath,
@@ -1843,10 +1873,17 @@ function App() {
     }
   });
 
-  const handleSendMessage = useEffectEvent(async (text: string) => {
+  const handleSendMessage = useEffectEvent(async (
+    text: string,
+    options?: { taskMode?: boolean; taskContext?: AgentTaskContext | null },
+  ) => {
     openDrawerTab("ai");
     await collabManager?.flushAll();
-    await sendMessageBase(text);
+    await sendMessageBase(text, options);
+  });
+
+  const handleExitResearchTaskMode = useEffectEvent(() => {
+    setActiveResearchTaskId(null);
   });
 
   const handleEnsureResearchScaffold = useEffectEvent(async () => {
@@ -1937,10 +1974,33 @@ function App() {
   });
 
   const handleUseResearchTaskInChat = useEffectEvent(async (task: ResearchTask) => {
+    setActiveResearchTaskId(task.id);
+    openDrawerTab("ai");
     if (task.suggestedSkills.length > 0) {
       await enableSkillsById(task.suggestedSkills);
     }
-    await handleSendMessage(task.nextActionPrompt || task.description || task.title);
+    taskComposerPresetRef.current += 1;
+    setTaskComposerPreset({
+      id: taskComposerPresetRef.current,
+      text: task.nextActionPrompt || task.taskPrompt || task.description || task.title,
+    });
+  });
+
+  const handleApplyResearchTaskSuggestion = useEffectEvent(async (suggestion: TaskUpdateSuggestion) => {
+    const nextSnapshot = await loadSnapshotWithCollab(() =>
+      desktop.applyResearchTaskSuggestion(
+        suggestion.taskId,
+        suggestion.changes,
+        suggestion.workingMemory,
+      ),
+    );
+    applySnapshot(nextSnapshot, {
+      activeFilePath,
+      openTabs,
+      openImageTabs,
+      editorImagePath,
+      previewSelection,
+    });
   });
 
   function handleOpenNode(node: ProjectNode) {
@@ -3368,6 +3428,28 @@ function App() {
     () => (snapshot?.research ? localizeResearchSnapshot(snapshot.research, locale) : null),
     [locale, snapshot?.research],
   );
+  const activeLocalizedResearchTask = useMemo(
+    () => researchSnapshot?.tasks.find((task) => task.id === activeResearchTaskId) ?? null,
+    [activeResearchTaskId, researchSnapshot],
+  );
+  const activeLocalizedTaskContext = useMemo<AgentTaskContext | null>(
+    () =>
+      activeLocalizedResearchTask
+        ? {
+          taskId: activeLocalizedResearchTask.id,
+          title: activeLocalizedResearchTask.title,
+          stage: activeLocalizedResearchTask.stage,
+          description: activeLocalizedResearchTask.description,
+          nextActionPrompt: activeLocalizedResearchTask.nextActionPrompt,
+          taskPrompt: activeLocalizedResearchTask.taskPrompt,
+          contextNotes: activeLocalizedResearchTask.contextNotes,
+          suggestedSkills: activeLocalizedResearchTask.suggestedSkills,
+          inputsNeeded: activeLocalizedResearchTask.inputsNeeded,
+          artifactPaths: activeLocalizedResearchTask.artifactPaths,
+        }
+        : null,
+    [activeLocalizedResearchTask],
+  );
   const currentResearchStageSummary =
     researchSnapshot?.stageSummaries.find((stage) => stage.stage === researchSnapshot.currentStage) ?? null;
   const publicationTask =
@@ -3387,6 +3469,12 @@ function App() {
     researchSnapshot &&
     (researchSnapshot.currentStage === "publication" || researchSnapshot.handoffToWriting),
   );
+
+  useEffect(() => {
+    if (activeResearchTaskId && !researchSnapshot?.tasks.some((task) => task.id === activeResearchTaskId)) {
+      setActiveResearchTaskId(null);
+    }
+  }, [activeResearchTaskId, researchSnapshot]);
 
   if (bootstrapError) {
     return <div className="app-shell loading-shell">ViewerLeaf failed to start: {bootstrapError}</div>;
@@ -3776,6 +3864,11 @@ function App() {
               isStreaming={isStreaming}
               onSendMessage={handleSendMessage}
               onDismissPatch={handleDismissPatch}
+              activeResearchTask={activeLocalizedTaskContext}
+              composerPreset={taskComposerPreset}
+              onExitResearchTaskMode={handleExitResearchTaskMode}
+              onOpenResearchCanvas={() => setWorkspaceSurface("research")}
+              onApplyTaskUpdateSuggestion={handleApplyResearchTaskSuggestion}
               collabAuthSession={collabAuthSession}
               collabConfig={collabConfigState}
               cloudCollab={snapshot.collab ?? null}
@@ -3810,10 +3903,12 @@ function App() {
                 <ResearchCanvas
                   locale={locale}
                   research={researchSnapshot}
+                  activeTaskId={activeResearchTaskId}
                   isBusy={isResearchBootstrapBusy}
                   onBootstrap={handleEnsureResearchScaffold}
                   onOpenArtifact={handleOpenResearchArtifact}
                   onUseTaskInChat={handleUseResearchTaskInChat}
+                  onEnterTask={handleUseResearchTaskInChat}
                   onOpenWriting={() => setWorkspaceSurface("writing")}
                 />
               </div>

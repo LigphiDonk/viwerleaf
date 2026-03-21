@@ -8,6 +8,7 @@ import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
   AppLocale,
+  AgentTaskContext,
   AgentMessage,
   AgentProfile,
   AgentSessionSummary,
@@ -21,6 +22,7 @@ import type {
   ProviderConfig,
   ReviewComment,
   SkillManifest,
+  TaskUpdateSuggestion,
   UsageRecord,
   WorkspaceCollabMetadata,
 } from "../types";
@@ -75,6 +77,11 @@ interface SidebarProps {
   onCancelAgent?: () => void;
   pendingPatchDiff?: import("../types").DiffLine[];
   projectTree?: import("../types").ProjectNode[];
+  activeResearchTask?: AgentTaskContext | null;
+  composerPreset?: { id: number; text: string } | null;
+  onExitResearchTaskMode?: () => void;
+  onOpenResearchCanvas?: () => void;
+  onApplyTaskUpdateSuggestion?: (suggestion: TaskUpdateSuggestion) => Promise<void> | void;
   // Collab props
   collabAuthSession: CollabAuthSession | null;
   collabConfig: CollabConfig | null;
@@ -198,6 +205,11 @@ export function Sidebar({
   onCancelAgent,
   pendingPatchDiff,
   projectTree,
+  activeResearchTask,
+  composerPreset,
+  onExitResearchTaskMode,
+  onOpenResearchCanvas,
+  onApplyTaskUpdateSuggestion,
   collabAuthSession,
   collabConfig: collabConfigProp,
   cloudCollab,
@@ -430,6 +442,11 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             onToggleSkill={onToggleSkill}
             usageRecords={usageRecords}
             projectTree={projectTree}
+            activeResearchTask={activeResearchTask}
+            composerPreset={composerPreset}
+            onExitResearchTaskMode={onExitResearchTaskMode}
+            onOpenResearchCanvas={onOpenResearchCanvas}
+            onApplyTaskUpdateSuggestion={onApplyTaskUpdateSuggestion}
           />
         </div>
       )}

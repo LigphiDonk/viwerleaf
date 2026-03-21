@@ -29,10 +29,12 @@ import type {
 interface ResearchCanvasProps {
   locale: AppLocale;
   research: ResearchCanvasSnapshot | null | undefined;
+  activeTaskId?: string | null;
   isBusy?: boolean;
   onBootstrap: () => Promise<void> | void;
   onOpenArtifact: (path: string) => void;
   onUseTaskInChat: (task: ResearchTask) => Promise<void> | void;
+  onEnterTask: (task: ResearchTask) => Promise<void> | void;
   onOpenWriting: () => void;
 }
 
@@ -97,7 +99,7 @@ function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
   const task = data.task;
   const isZh = /[\u4e00-\u9fff]/.test(task.title);
   return (
-    <div className={`research-task-node is-${task.status}${selected ? " is-selected" : ""}`}>
+    <div className={`research-task-node is-${task.status}${selected ? " is-selected" : ""}${data.isCurrentTask ? " is-current-task" : ""}`}>
       <Handle type="target" position={Position.Top} className="research-node-handle" />
       <div className="research-task-node__stripe" />
       <div className="research-task-node__header">
@@ -109,6 +111,18 @@ function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
       <div className="research-task-node__meta">
         <span>{task.inputsNeeded.length} {isZh ? "输入" : "inputs"}</span>
         <span>{task.artifactPaths.length} {isZh ? "产物" : "artifacts"}</span>
+      </div>
+      <div className="research-task-node__actions">
+        <button
+          type="button"
+          className="research-task-node__agent-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            void data.onEnterTask?.(task);
+          }}
+        >
+          {task.agentEntryLabel || (isZh ? "进入 Agent" : "Enter Agent")}
+        </button>
       </div>
       {task.suggestedSkills.length > 0 ? (
         <div className="research-node-chips">
@@ -340,10 +354,12 @@ function ResearchStageRail({
 export function ResearchCanvas({
   locale,
   research,
+  activeTaskId = null,
   isBusy = false,
   onBootstrap,
   onOpenArtifact,
   onUseTaskInChat,
+  onEnterTask,
   onOpenWriting,
 }: ResearchCanvasProps) {
   const isZh = locale === "zh-CN";
@@ -356,10 +372,25 @@ export function ResearchCanvas({
     () => (localizedResearch ? buildResearchCanvasGraph(localizedResearch) : { nodes: [], edges: [] }),
     [localizedResearch],
   );
+  const enrichedNodes = useMemo(
+    () => graph.nodes.map((node) => (
+      node.type === "researchTask"
+        ? {
+          ...node,
+          data: {
+            ...node.data,
+            isCurrentTask: node.data.task.id === activeTaskId,
+            onEnterTask,
+          },
+        }
+        : node
+    )),
+    [activeTaskId, graph.nodes, onEnterTask],
+  );
   const [selectionId, setSelectionId] = useState<string | null>(
     localizedResearch ? defaultResearchSelection(localizedResearch) : null,
   );
-  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(enrichedNodes);
   const didInitializeRef = useRef(false);
 
   useEffect(() => {
@@ -375,14 +406,14 @@ export function ResearchCanvas({
       const currentPositionById = new Map(currentNodes.map((node) => [node.id, node.position]));
       if (!didInitializeRef.current) {
         didInitializeRef.current = true;
-        return graph.nodes;
+        return enrichedNodes;
       }
-      return graph.nodes.map((node) => ({
+      return enrichedNodes.map((node) => ({
         ...node,
         position: currentPositionById.get(node.id) ?? node.position,
       }));
     });
-  }, [graph.nodes, localizedResearch, setNodes]);
+  }, [enrichedNodes, localizedResearch, setNodes]);
 
   if (needsBootstrap) {
     return <ResearchOnboarding locale={locale} research={localizedResearch} isBusy={isBusy} onBootstrap={onBootstrap} />;
