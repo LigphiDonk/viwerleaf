@@ -752,7 +752,11 @@ function AgentRuntimeSetup({
       : "未检测到";
 
   const vendorButtons = (
-    <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
+    <div
+      className={`ag-runtime-vendors${compact ? " ag-runtime-vendors--compact" : ""}`}
+      role="tablist"
+      aria-label="选择 Agent 运行时"
+    >
       {(Object.entries(AGENT_BRANDS) as [AgentVendor, (typeof AGENT_BRANDS)[AgentVendor]][]).map(
         ([vendor, brand]) => {
           const status = cliStatus[vendor];
@@ -762,7 +766,7 @@ function AgentRuntimeSetup({
             <button
               key={vendor}
               type="button"
-              className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}${unavailable ? " is-unavailable" : ""}`}
+              className={`ag-runtime-chip${compact ? " ag-runtime-chip--compact" : ""}${activeVendor === vendor ? " is-active" : ""}${unavailable ? " is-unavailable" : ""}`}
               style={
                 activeVendor === vendor
                   ? {
@@ -810,7 +814,7 @@ function AgentRuntimeSetup({
 
           {isModelMenuOpen && (
             <div className="ag-runtime-model-menu ag-runtime-model-menu--compact" role="listbox" aria-label="选择模型">
-              <div className="ag-runtime-model-menu-head">
+              <div className="ag-runtime-model-menu-head ag-runtime-model-menu-head--compact">
                 {vendorButtons}
                 <div className="ag-runtime-model-menu-meta">
                   <span
@@ -831,14 +835,14 @@ function AgentRuntimeSetup({
                   )}
                 </div>
               </div>
-              <div className="ag-runtime-model-options">
+              <div className="ag-runtime-model-options ag-runtime-model-options--compact">
                 {modelOptions.map((model) => {
                   const isSelected = model.key === currentVariant.key;
                   return (
                     <button
                       key={model.key}
                       type="button"
-                      className={`ag-runtime-model-option${isSelected ? " is-selected" : ""}`}
+                      className={`ag-runtime-model-option ag-runtime-model-option--compact${isSelected ? " is-selected" : ""}`}
                       role="option"
                       aria-selected={isSelected}
                       onClick={() => {
@@ -848,7 +852,7 @@ function AgentRuntimeSetup({
                     >
                       <span className="ag-runtime-model-option-main">
                         <span className="ag-runtime-model-option-title">{model.label}</span>
-                        <span className="ag-runtime-model-option-desc">{model.description}</span>
+                        <span className="ag-runtime-model-option-desc ag-runtime-model-option-desc--compact">{model.description}</span>
                       </span>
                       <span className="ag-runtime-model-option-meta">
                         {model.badge ? <span className="ag-runtime-model-option-badge">{model.badge}</span> : null}
