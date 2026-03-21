@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 
 import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
-import { ProviderCard, ProviderEditModal, AgentSelector } from "./ProviderCard";
 import { SkillArsenal } from "./SkillArsenal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
   AgentMessage,
+  AgentProfile,
   AgentSessionSummary,
   CollabStatus,
   CompileEnvironmentStatus,
@@ -21,7 +21,6 @@ import type {
   ReviewComment,
   SkillManifest,
   StreamToolCall,
-  TestResult,
   UsageRecord,
   WorkspaceCollabMetadata,
 } from "../types";
@@ -57,13 +56,11 @@ interface SidebarProps {
   onSelectAsset: (assetId: string) => void;
   providers: ProviderConfig[];
   activeProviderId?: string;
+  activeChatProfile: AgentProfile | null;
   skills: SkillManifest[];
   usageRecords: UsageRecord[];
-  onAddProvider: (provider: ProviderConfig) => Promise<void>;
-  onUpdateProvider: (providerId: string, patch: Partial<ProviderConfig>) => Promise<void>;
-  onDeleteProvider: (providerId: string) => Promise<void>;
-  onTestProvider: (providerId: string) => Promise<TestResult>;
-  onActivateProvider: (providerId: string) => void;
+  onSelectChatVendor: (vendor: "claude-code" | "codex") => Promise<void>;
+  onSelectChatModel: (model: string) => Promise<void>;
   onToggleSkill: (skill: SkillManifest) => Promise<void>;
   onSkillsChanged?: () => void;
   streamThinkingText?: string;
@@ -182,12 +179,11 @@ export function Sidebar({
   onSelectAsset,
   providers,
   activeProviderId,
+  activeChatProfile,
   skills,
   usageRecords,
-  onAddProvider,
-  onUpdateProvider,
-  onDeleteProvider,
-  onActivateProvider,
+  onSelectChatVendor,
+  onSelectChatModel,
   onToggleSkill,
   onSkillsChanged,
   streamThinkingText,
@@ -225,7 +221,6 @@ export function Sidebar({
   onDeleteComment,
   onJumpToCommentLine,
 }: SidebarProps) {
-  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
   const [collabConfigForm, setCollabConfigForm] = useState({
     httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
     wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
@@ -426,6 +421,11 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             streamToolCalls={streamToolCalls}
             streamError={streamError}
             isStreaming={isStreaming}
+            providers={providers}
+            activeProfile={activeChatProfile}
+            activeProviderId={activeProviderId}
+            onSelectProviderVendor={onSelectChatVendor}
+            onSelectModel={onSelectChatModel}
             skills={skills}
             onToggleSkill={onToggleSkill}
             usageRecords={usageRecords}
@@ -504,46 +504,6 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             />
 
           </div>
-        </>
-      )}
-
-      {tab === "providers" && (
-        <>
-          <div className="sidebar-header">Agent 配置</div>
-          <div className="sidebar-content sidebar-stack">
-            {/* Agent selector */}
-            <AgentSelector onAdd={onAddProvider} existingCount={providers.length} />
-
-            {/* Active provider cards */}
-            {providers.length > 0 && (
-              <div className="pcard-list">
-                {providers.map((provider) => (
-                  <ProviderCard
-                    key={provider.id}
-                    provider={provider}
-                    isActive={provider.id === activeProviderId}
-                    onActivate={onActivateProvider}
-                    onTest={() => {}}
-                    onDelete={(id) => void onDeleteProvider(id)}
-                    onEdit={(id) => setEditingProviderId(id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Edit modal */}
-          {editingProviderId && (() => {
-            const p = providers.find(pr => pr.id === editingProviderId);
-            if (!p) return null;
-            return (
-              <ProviderEditModal
-                provider={p}
-                onSave={(patch) => onUpdateProvider(p.id, patch)}
-                onClose={() => setEditingProviderId(null)}
-              />
-            );
-          })()}
         </>
       )}
 

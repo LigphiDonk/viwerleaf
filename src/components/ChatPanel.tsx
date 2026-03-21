@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { SkillArsenal } from "./SkillArsenal";
+import { desktop } from "../lib/desktop";
+import {
+  AGENT_BRANDS,
+  getAgentBrand,
+  isAgentVendor,
+  type AgentVendor,
+} from "../lib/agentCatalog";
 
 import type {
   AgentMessage,
+  AgentProfile,
   AgentSessionSummary,
+  CliAgentStatus,
   DiffLine,
   ProjectNode,
+  ProviderConfig,
   SkillManifest,
   StreamToolCall,
   UsageRecord,
@@ -500,6 +510,143 @@ function PatchCard({ summary, diff, onApply, onDismiss }: {
   );
 }
 
+function AgentRuntimeBar({
+  providers,
+  activeProfile,
+  activeProviderId,
+  isStreaming,
+  onSelectProviderVendor,
+  onSelectModel,
+}: {
+  providers: ProviderConfig[];
+  activeProfile: AgentProfile | null;
+  activeProviderId?: string;
+  isStreaming?: boolean;
+  onSelectProviderVendor: (vendor: AgentVendor) => Promise<void>;
+  onSelectModel: (model: string) => Promise<void>;
+}) {
+  const [cliStatus, setCliStatus] = useState<Record<string, CliAgentStatus>>({});
+  const [detectingCli, setDetectingCli] = useState(true);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void desktop
+      .detectCliAgents()
+      .then((agents) => {
+        if (disposed) {
+          return;
+        }
+
+        const nextStatus: Record<string, CliAgentStatus> = {};
+        for (const agent of agents) {
+          nextStatus[agent.name] = agent;
+        }
+        setCliStatus(nextStatus);
+      })
+      .catch((error) => {
+        console.warn("failed to detect CLI agents", error);
+      })
+      .finally(() => {
+        if (!disposed) {
+          setDetectingCli(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const activeProvider =
+    providers.find((provider) => provider.id === activeProviderId) ??
+    providers.find((provider) => provider.id === activeProfile?.providerId) ??
+    null;
+  const activeVendor =
+    activeProvider && isAgentVendor(activeProvider.vendor)
+      ? activeProvider.vendor
+      : "claude-code";
+  const activeBrand = getAgentBrand(activeVendor);
+  const activeStatus = cliStatus[activeVendor];
+  const currentModel =
+    activeProfile?.model?.trim() ||
+    activeProvider?.defaultModel?.trim() ||
+    activeBrand.defaultModel;
+  const modelOptions = activeBrand.models.some((model) => model.value === currentModel)
+    ? activeBrand.models
+    : [{ value: currentModel, label: currentModel }, ...activeBrand.models];
+
+  return (
+    <div className="ag-runtime-bar">
+      <div className="ag-runtime-copy">
+        <span className="ag-runtime-eyebrow">Agent Runtime</span>
+        <div className="ag-runtime-title-row">
+          <span className="ag-runtime-title">
+            {activeBrand.icon} {activeBrand.label}
+          </span>
+          <span
+            className={`ag-runtime-status${!detectingCli && !activeStatus?.available ? " is-missing" : ""}`}
+          >
+            {detectingCli
+              ? "检测中…"
+              : activeStatus?.available
+                ? activeStatus.version
+                  ? `v${activeStatus.version}`
+                  : "已就绪"
+                : "未安装"}
+          </span>
+        </div>
+      </div>
+
+      <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
+        {(Object.entries(AGENT_BRANDS) as [AgentVendor, (typeof AGENT_BRANDS)[AgentVendor]][]).map(
+          ([vendor, brand]) => {
+            const status = cliStatus[vendor];
+            const unavailable = !detectingCli && !status?.available;
+
+            return (
+              <button
+                key={vendor}
+                type="button"
+                className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}`}
+                style={
+                  activeVendor === vendor
+                    ? {
+                        borderColor: brand.borderActive,
+                        background: brand.accentBg,
+                        color: brand.accentColor,
+                      }
+                    : undefined
+                }
+                disabled={Boolean(isStreaming) || unavailable}
+                onClick={() => void onSelectProviderVendor(vendor)}
+              >
+                <span className="ag-runtime-chip-icon">{brand.icon}</span>
+                <span>{brand.label}</span>
+              </button>
+            );
+          },
+        )}
+      </div>
+
+      <label className="ag-runtime-model">
+        <span className="ag-runtime-model-label">模型</span>
+        <select
+          value={currentModel}
+          disabled={Boolean(isStreaming) || (!detectingCli && !activeStatus?.available)}
+          onChange={(event) => void onSelectModel(event.target.value)}
+        >
+          {modelOptions.map((model) => (
+            <option key={model.value} value={model.value}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
 /* ─── Bottom toolbar ──────────────────────────────────── */
 function BottomBar({
   onRunAgent,
@@ -664,10 +811,15 @@ export interface ChatPanelProps {
   messages: AgentMessage[];
   sessions: AgentSessionSummary[];
   activeSessionId: string;
+  providers: ProviderConfig[];
+  activeProfile: AgentProfile | null;
+  activeProviderId?: string;
   onSelectSession: (sessionId: string) => void;
   onNewSession: () => void;
   onRunAgent: () => void;
   onSendMessage: (text: string) => void;
+  onSelectProviderVendor: (vendor: AgentVendor) => Promise<void>;
+  onSelectModel: (model: string) => Promise<void>;
   onCancelAgent?: () => void;
   pendingPatchSummary?: string;
   pendingPatchDiff?: DiffLine[];
@@ -687,8 +839,9 @@ export interface ChatPanelProps {
 }
 
 export function ChatPanel({
-  messages, sessions, activeSessionId, onSelectSession, onNewSession,
-  onRunAgent, onSendMessage, onCancelAgent,
+  messages, sessions, activeSessionId, providers, activeProfile, activeProviderId,
+  onSelectSession, onNewSession,
+  onRunAgent, onSendMessage, onSelectProviderVendor, onSelectModel, onCancelAgent,
   pendingPatchSummary, pendingPatchDiff, onApplyPatch, onDismissPatch,
   streamThinkingText,
   streamThinkingHistoryText,
@@ -910,6 +1063,15 @@ export function ChatPanel({
           </button>
         </div>
       </div>
+
+      <AgentRuntimeBar
+        providers={providers}
+        activeProfile={activeProfile}
+        activeProviderId={activeProviderId}
+        isStreaming={isStreaming}
+        onSelectProviderVendor={onSelectProviderVendor}
+        onSelectModel={onSelectModel}
+      />
 
       {isSessionPickerOpen && (
         <div

@@ -12,7 +12,6 @@ export type DrawerTab =
   | "logs"
   | "figures"
   | "skills"
-  | "providers"
   | "usage"
   | "collab";
 export type WorkspacePaneMode = "files" | "outline";

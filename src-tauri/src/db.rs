@@ -3,6 +3,8 @@ use std::path::Path;
 use rusqlite::{params, Connection, Result as SqlResult};
 
 const DEFAULT_CHAT_TOOLS: &str = r#"["tool_search","list","read","glob","grep","edit","write","apply_patch","list_sections","read_section","read_bib_entries","list_files","search_project","apply_text_patch","insert_at_line"]"#;
+const BUILTIN_CLAUDE_PROVIDER_ID: &str = "builtin-claude-code";
+const BUILTIN_CODEX_PROVIDER_ID: &str = "builtin-codex";
 
 const REQUIRED_CHAT_TOOLS: &[&str] = &[
     "tool_search",
@@ -35,6 +37,7 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     migrate_providers_table(&conn)?;
 
     conn.execute_batch(include_str!("schema.sql"))?;
+    ensure_builtin_agent_providers(&conn)?;
 
     let profile_count: i64 =
         conn.query_row("SELECT COUNT(*) FROM profiles", [], |row| row.get(0))?;
@@ -43,6 +46,7 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     } else {
         migrate_profiles(&conn)?;
     }
+    ensure_chat_profile_provider(&conn)?;
 
     Ok(conn)
 }
@@ -219,6 +223,79 @@ fn seed_profiles(conn: &Connection) -> SqlResult<()> {
         "INSERT INTO profiles (id, label, summary, stage, provider_id, model, skill_ids_json, tool_allowlist_json, output_mode, is_builtin) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
         params!["chat", "Chat", "General assistant", "chat", provider_id, "", "[]", DEFAULT_CHAT_TOOLS, "chat"],
     )?;
+    Ok(())
+}
+
+fn ensure_builtin_agent_providers(conn: &Connection) -> SqlResult<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO providers
+            (id, name, vendor, base_url, api_key, default_model, is_enabled, sort_order, meta_json)
+         VALUES (?1, ?2, ?3, '', '', ?4, 1, 0, '{\"builtin\":true}')",
+        params![
+            BUILTIN_CLAUDE_PROVIDER_ID,
+            "Claude Code",
+            "claude-code",
+            "claude-opus-4-6"
+        ],
+    )?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO providers
+            (id, name, vendor, base_url, api_key, default_model, is_enabled, sort_order, meta_json)
+         VALUES (?1, ?2, ?3, '', '', ?4, 0, 1, '{\"builtin\":true}')",
+        params![BUILTIN_CODEX_PROVIDER_ID, "Codex", "codex", "gpt-5.4"],
+    )?;
+
+    Ok(())
+}
+
+fn ensure_chat_profile_provider(conn: &Connection) -> SqlResult<()> {
+    let current_provider_id: Option<String> = conn
+        .query_row(
+            "SELECT provider_id FROM profiles WHERE id='chat' LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let Some(current_provider_id) = current_provider_id else {
+        return Ok(());
+    };
+
+    let current_exists = !current_provider_id.trim().is_empty()
+        && conn
+            .query_row(
+                "SELECT COUNT(*) FROM providers WHERE id=?1",
+                params![current_provider_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or_default()
+            > 0;
+
+    if current_exists {
+        return Ok(());
+    }
+
+    let fallback_provider_id: String = conn
+        .query_row(
+            "SELECT id FROM providers WHERE vendor='claude-code' ORDER BY sort_order LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| BUILTIN_CLAUDE_PROVIDER_ID.to_string());
+    let fallback_model: String = conn
+        .query_row(
+            "SELECT default_model FROM providers WHERE id=?1 LIMIT 1",
+            params![fallback_provider_id],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "claude-opus-4-6".to_string());
+
+    conn.execute(
+        "UPDATE profiles SET provider_id=?1, model=CASE WHEN trim(model)='' THEN ?2 ELSE model END WHERE id='chat'",
+        params![fallback_provider_id, fallback_model],
+    )?;
+
     Ok(())
 }
 

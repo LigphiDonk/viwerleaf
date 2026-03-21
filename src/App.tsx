@@ -64,6 +64,7 @@ import {
   writeWorkspaceCollabMetadata,
 } from "./lib/collaboration/workspace-metadata";
 import { desktop, isTauriRuntime } from "./lib/desktop";
+import { AGENT_BRANDS, getAgentBrand, isAgentVendor, type AgentVendor } from "./lib/agentCatalog";
 import { resolvePdfSource } from "./lib/pdf-source";
 import { findActiveHeading } from "./lib/outline";
 import { closePathTab, closeTextTab, getNodeByPath } from "./lib/workspace";
@@ -86,7 +87,6 @@ import type {
   ProviderConfig,
   ReviewComment,
   SkillManifest,
-  TestResult,
   WorkspaceCollabMetadata,
   WorkspaceEntry,
   WorkspacePaneMode,
@@ -1754,49 +1754,7 @@ function App() {
     setDirtyPaths((current) => current.filter((path) => path !== result.filePath));
   }
 
-  async function handleAddProvider(provider: ProviderConfig) {
-    await desktop.addProvider(provider);
-    const providers = await desktop.listProviders();
-    setSnapshot((current) => (current ? { ...current, providers } : current));
-  }
-
-  async function handleUpdateProvider(providerId: string, patch: Partial<ProviderConfig>) {
-    await desktop.updateProvider(providerId, patch);
-    const providers = await desktop.listProviders();
-    setSnapshot((current) => (current ? { ...current, providers } : current));
-  }
-
-  async function handleActivateProvider(providerId: string) {
-    const currentSnapshot = snapshot;
-    if (!currentSnapshot) {
-      return;
-    }
-
-    const currentProviders = currentSnapshot.providers;
-    const targetProvider = currentProviders.find((provider) => provider.id === providerId);
-
-    await Promise.all(
-      currentProviders.map((provider) =>
-        desktop.updateProvider(provider.id, { isEnabled: provider.id === providerId }),
-      ),
-    );
-
-    const targetProfile =
-      currentSnapshot.profiles.find((profile) => profile.id === activeProfileId) ??
-      currentSnapshot.profiles[0];
-    if (targetProfile && targetProvider) {
-      const nextModel = targetProvider.defaultModel?.trim() || targetProfile.model;
-      const needsUpdate =
-        targetProfile.providerId !== providerId || targetProfile.model !== nextModel;
-      if (needsUpdate) {
-        await desktop.updateProfile({
-          ...targetProfile,
-          providerId,
-          model: nextModel,
-        });
-      }
-    }
-
+  async function refreshAgentProvidersAndProfiles() {
     const [providers, profiles] = await Promise.all([
       desktop.listProviders(),
       desktop.listProfiles(),
@@ -1804,14 +1762,107 @@ function App() {
     setSnapshot((prev) => (prev ? { ...prev, providers, profiles } : prev));
   }
 
-  async function handleDeleteProvider(providerId: string) {
-    await desktop.deleteProvider(providerId);
+  async function ensureAgentProvider(vendor: AgentVendor) {
+    const currentSnapshot = snapshot;
+    if (!currentSnapshot) {
+      return { providers: [] as ProviderConfig[], provider: null as ProviderConfig | null };
+    }
+
+    const existing = currentSnapshot.providers.find((provider) => provider.vendor === vendor) ?? null;
+    if (existing) {
+      return { providers: currentSnapshot.providers, provider: existing };
+    }
+
+    const brand = AGENT_BRANDS[vendor];
+    const builtinProvider: ProviderConfig = {
+      id: `builtin-${vendor}`,
+      name: brand.label,
+      vendor,
+      baseUrl: "",
+      defaultModel: brand.defaultModel,
+      apiKey: "",
+      isEnabled: vendor === "claude-code",
+      sortOrder: currentSnapshot.providers.length,
+      metaJson: "{\"builtin\":true}",
+    };
+    await desktop.addProvider(builtinProvider);
     const providers = await desktop.listProviders();
-    setSnapshot((current) => (current ? { ...current, providers } : current));
+    setSnapshot((prev) => (prev ? { ...prev, providers } : prev));
+    return {
+      providers,
+      provider: providers.find((provider) => provider.vendor === vendor) ?? builtinProvider,
+    };
   }
 
-  function handleTestProvider(providerId: string): Promise<TestResult> {
-    return desktop.testProvider(providerId);
+  async function handleSelectChatVendor(vendor: AgentVendor) {
+    const currentSnapshot = snapshot;
+    if (!currentSnapshot) {
+      return;
+    }
+
+    const targetProfile =
+      currentSnapshot.profiles.find((profile) => profile.id === activeProfileId) ??
+      currentSnapshot.profiles.find((profile) => profile.id === "chat") ??
+      currentSnapshot.profiles[0];
+    if (!targetProfile) {
+      return;
+    }
+
+    const { providers, provider } = await ensureAgentProvider(vendor);
+    if (!provider) {
+      return;
+    }
+
+    const nextModel = provider.defaultModel?.trim() || getAgentBrand(vendor).defaultModel;
+    await Promise.all([
+      ...providers
+        .filter((item) => isAgentVendor(item.vendor))
+        .map((item) =>
+          desktop.updateProvider(item.id, { isEnabled: item.id === provider.id }),
+        ),
+      desktop.updateProfile({
+        ...targetProfile,
+        providerId: provider.id,
+        model: nextModel,
+      }),
+    ]);
+
+    await refreshAgentProvidersAndProfiles();
+  }
+
+  async function handleSelectChatModel(model: string) {
+    const currentSnapshot = snapshot;
+    if (!currentSnapshot) {
+      return;
+    }
+
+    const targetProfile =
+      currentSnapshot.profiles.find((profile) => profile.id === activeProfileId) ??
+      currentSnapshot.profiles.find((profile) => profile.id === "chat") ??
+      currentSnapshot.profiles[0];
+    if (!targetProfile) {
+      return;
+    }
+
+    const targetProvider =
+      currentSnapshot.providers.find((provider) => provider.id === targetProfile.providerId) ??
+      currentSnapshot.providers.find(
+        (provider) => provider.isEnabled && isAgentVendor(provider.vendor),
+      ) ??
+      null;
+    if (!targetProvider) {
+      return;
+    }
+
+    await Promise.all([
+      desktop.updateProfile({
+        ...targetProfile,
+        model,
+      }),
+      desktop.updateProvider(targetProvider.id, { defaultModel: model }),
+    ]);
+
+    await refreshAgentProvidersAndProfiles();
   }
 
   async function handleToggleSkill(skill: SkillManifest) {
@@ -3186,13 +3237,6 @@ function App() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${drawerTab === "providers" ? "is-active" : ""}`}
-              onClick={() => toggleDrawerTab("providers")}
-              title="API 配置区 (Providers)"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            </button>
-            <button
               className={`activity-icon hover-spring ${drawerTab === "usage" ? "is-active" : ""}`}
               onClick={() => toggleDrawerTab("usage")}
               title="模型用量 (Usage)"
@@ -3295,13 +3339,11 @@ function App() {
               onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
               providers={snapshot.providers}
               activeProviderId={activeProfile?.providerId || snapshot.providers.find((p) => p.isEnabled)?.id}
+              activeChatProfile={activeProfile}
               skills={snapshot.skills}
               usageRecords={usageRecords}
-              onAddProvider={handleAddProvider}
-              onUpdateProvider={handleUpdateProvider}
-              onDeleteProvider={handleDeleteProvider}
-              onTestProvider={handleTestProvider}
-              onActivateProvider={(id) => void handleActivateProvider(id)}
+              onSelectChatVendor={handleSelectChatVendor}
+              onSelectChatModel={handleSelectChatModel}
               onToggleSkill={handleToggleSkill}
               onSkillsChanged={handleSkillsChanged}
               streamThinkingText={streamThinkingText}

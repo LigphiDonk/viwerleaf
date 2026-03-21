@@ -12,6 +12,7 @@ import type {
   AgentSessionSummary,
   AssetResource,
   CompileEnvironmentStatus,
+  CliAgentStatus,
   FigureBriefDraft,
   GeneratedAsset,
   ProjectConfig,
@@ -258,6 +259,14 @@ export const desktop = {
   },
   createWorkspaceDir(path: string) {
     return runOrMock("create_workspace_dir", { path }, () => Promise.resolve());
+  },
+  detectCliAgents() {
+    return runOrMock<CliAgentStatus[]>("detect_cli_agents", {}, () =>
+      Promise.resolve([
+        { name: "claude-code", available: true, version: "mock" },
+        { name: "codex", available: true, version: "mock" },
+      ]),
+    );
   },
   listProviders() {
     return runOrMock<ProviderConfig[]>("list_providers", {}, () => mockRuntime.listProviders());
