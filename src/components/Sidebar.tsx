@@ -21,7 +21,6 @@ import type {
   ProviderConfig,
   ReviewComment,
   SkillManifest,
-  StreamToolCall,
   UsageRecord,
   WorkspaceCollabMetadata,
 } from "../types";
@@ -68,8 +67,7 @@ interface SidebarProps {
   streamThinkingText?: string;
   streamThinkingHistoryText?: string;
   streamThinkingDurationMs?: number;
-  streamText?: string;
-  streamToolCalls?: StreamToolCall[];
+  streamContent?: string;
   streamError?: string;
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
@@ -192,8 +190,7 @@ export function Sidebar({
   streamThinkingText,
   streamThinkingHistoryText,
   streamThinkingDurationMs,
-  streamText,
-  streamToolCalls,
+  streamContent,
   streamError,
   isStreaming,
   onSendMessage,
@@ -421,8 +418,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             streamThinkingText={streamThinkingText}
             streamThinkingHistoryText={streamThinkingHistoryText}
             streamThinkingDurationMs={streamThinkingDurationMs}
-            streamText={streamText}
-            streamToolCalls={streamToolCalls}
+            streamContent={streamContent}
             streamError={streamError}
             isStreaming={isStreaming}
             providers={providers}

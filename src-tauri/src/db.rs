@@ -37,6 +37,7 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     migrate_providers_table(&conn)?;
 
     conn.execute_batch(include_str!("schema.sql"))?;
+    ensure_sessions_remote_id_column(&conn)?;
     ensure_builtin_agent_providers(&conn)?;
 
     let profile_count: i64 =
@@ -206,6 +207,30 @@ fn migrate_skills_table(conn: &rusqlite::Connection) -> SqlResult<()> {
          COMMIT;
          PRAGMA foreign_keys=ON;",
     )?;
+
+    Ok(())
+}
+
+fn ensure_sessions_remote_id_column(conn: &Connection) -> SqlResult<()> {
+    let has_column = {
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let mut found = false;
+        for row in rows {
+            if row?.as_str() == "remote_session_id" {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+
+    if !has_column {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN remote_session_id TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
 
     Ok(())
 }

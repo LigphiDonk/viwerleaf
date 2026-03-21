@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS skills (
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
     profile_id  TEXT NOT NULL,
+    remote_session_id TEXT NOT NULL DEFAULT '',
     project_dir TEXT NOT NULL,
     title       TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),

@@ -18,7 +18,6 @@ import type {
   ProjectNode,
   ProviderConfig,
   SkillManifest,
-  StreamToolCall,
   UsageRecord,
 } from "../types";
 
@@ -30,7 +29,11 @@ interface ToolCallBlock {
   output?: string;
   status: "running" | "completed" | "error" | "requested";
 }
+type RenderBlock =
+  | { kind: "text"; id: string; text: string }
+  | { kind: "tool"; id: string; call: ToolCallBlock };
 interface StreamBlock {
+  blocks: RenderBlock[];
   text: string;
   toolCalls: ToolCallBlock[];
   thoughtText: string;
@@ -154,16 +157,42 @@ function parseEmbeddedToolPayload(raw: string) {
   }
 }
 
-function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; cleaned: string } {
+function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; blocks: RenderBlock[]; cleaned: string } {
   const lines = raw.split('\n');
   const toolCalls: ToolCallBlock[] = [];
+  const blocks: RenderBlock[] = [];
   const textLines: string[] = [];
+  const pushTextBlock = () => {
+    if (textLines.length === 0) {
+      return;
+    }
+    const text = textLines.join("\n").trim();
+    if (text) {
+      blocks.push({
+        kind: "text",
+        id: `text-${blocks.length}`,
+        text,
+      });
+    }
+    textLines.length = 0;
+  };
   let i = 0;
   while (i < lines.length) {
     const toolMatch = lines[i].match(/^\[Tool: ([^\]]+)\]$/);
     if (toolMatch) {
+      pushTextBlock();
       const toolId = toolMatch[1];
       let result = "";
+      let status: ToolCallBlock["status"] = "running";
+      if (i + 1 < lines.length && lines[i + 1].startsWith("[Status: ")) {
+        const statusLine = lines[i + 1];
+        const lastBracket = statusLine.lastIndexOf("]");
+        const nextStatus = statusLine.slice("[Status: ".length, lastBracket > -1 ? lastBracket : undefined).trim();
+        if (nextStatus === "error" || nextStatus === "requested" || nextStatus === "running") {
+          status = nextStatus;
+        }
+        i += 1;
+      }
       // New multi-line format: [Result] ... [/Result]
       if (i + 1 < lines.length && lines[i + 1].trim() === "[Result]") {
         i += 2; // skip [Result] line
@@ -190,18 +219,31 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; c
         id: `${i}-${toolId}`,
         toolId,
         output: result.trim() || undefined,
-        status: result ? "completed" : "running",
+        status: result ? (status === "running" ? "completed" : status) : status,
+      });
+      blocks.push({
+        kind: "tool",
+        id: `${i}-${toolId}`,
+        call: toolCalls[toolCalls.length - 1],
       });
     } else {
       textLines.push(lines[i]);
     }
     i++;
   }
-  return { toolCalls, cleaned: textLines.join('\n') };
+  pushTextBlock();
+  const cleaned = blocks.reduce<string[]>((acc, block) => {
+    if (block.kind === "text") {
+      acc.push(block.text);
+    }
+    return acc;
+  }, []).join("\n");
+  return { toolCalls, blocks, cleaned };
 }
 
 function parseStreamBlocks(raw: string): StreamBlock {
   const toolCalls: ToolCallBlock[] = [];
+  const blocks: RenderBlock[] = [];
   const thoughtText = Array.from(raw.matchAll(/<think>\s*([\s\S]*?)\s*<\/think>/g))
     .map((match) => match[1]?.trim() ?? "")
     .filter((value) => value.length > 0)
@@ -209,6 +251,7 @@ function parseStreamBlocks(raw: string): StreamBlock {
 
   const serialized = parseSerializedToolBlocks(raw);
   toolCalls.push(...serialized.toolCalls);
+  blocks.push(...serialized.blocks);
 
   let m: RegExpExecArray | null;
 
@@ -223,6 +266,11 @@ function parseStreamBlocks(raw: string): StreamBlock {
       args: embedded.args,
       status: "requested",
     });
+    blocks.push({
+      kind: "tool",
+      id: `${m.index}-${embedded.name}`,
+      call: toolCalls[toolCalls.length - 1],
+    });
   }
   const text = serialized.cleaned
     .replace(TAGGED_TOOL_BLOCK_RE, "")
@@ -235,17 +283,14 @@ function parseStreamBlocks(raw: string): StreamBlock {
     .replace(/<\/?think>/g, "")
     .replace(/\[Error: [\s\S]*?\]\n?/g, "")
     .trim();
-  return { text, toolCalls, thoughtText };
-}
-
-function toToolCallBlock(call: StreamToolCall): ToolCallBlock {
-  return {
-    id: call.id,
-    toolId: call.toolId,
-    args: call.args,
-    output: call.output,
-    status: call.status,
-  };
+  if (blocks.length === 0 && text) {
+    blocks.push({
+      kind: "text",
+      id: "text-fallback",
+      text,
+    });
+  }
+  return { blocks, text, toolCalls, thoughtText };
 }
 
 function summarizeToolCall(call: ToolCallBlock) {
@@ -389,15 +434,15 @@ function AssistantMessage({ msg, streaming }: {
     thinkingText?: string;
     thinkingHistoryText?: string;
     thinkingDurationMs?: number;
-    text: string;
-    toolCalls?: ToolCallBlock[];
+    content: string;
     streamError?: string;
   };
 }) {
-  const raw = msg?.content ?? streaming?.text ?? "";
+  const raw = msg?.content ?? streaming?.content ?? "";
   const parsed = parseStreamBlocks(raw);
   const clean = parsed.text;
-  const toolCalls = streaming?.toolCalls ?? parsed.toolCalls;
+  const toolCalls = parsed.toolCalls;
+  const blocks = parsed.blocks;
   const streamError = streaming?.streamError;
   const thinkingText = streaming?.thinkingText?.trim() ?? "";
   const thinkingHistoryText = streaming?.thinkingHistoryText?.trim() ?? "";
@@ -435,14 +480,17 @@ function AssistantMessage({ msg, streaming }: {
         </div>
       )}
       {streamError && <div className="ag-assistant-error">Error: {streamError}</div>}
-      {clean && (
-        <div className="ag-assistant-text">
-          <ReactMarkdown>{clean}</ReactMarkdown>
+      {blocks.length > 0 && (
+        <div className="ag-assistant-sequence">
+          {blocks.map((block) => block.kind === "text" ? (
+            <div key={block.id} className="ag-assistant-text">
+              <ReactMarkdown>{block.text}</ReactMarkdown>
+            </div>
+          ) : (
+            <ToolCallCard key={block.id} call={block.call} />
+          ))}
         </div>
       )}
-      {toolCalls.map((c, i) => (
-        <ToolCallCard key={c.id || i} call={c} />
-      ))}
       {!clean && !thinkingText && toolCalls.length === 0 && !streaming && (
         <div className="ag-assistant-text ag-thinking">
           <span className="ag-thinking-dot" />
@@ -832,8 +880,7 @@ export interface ChatPanelProps {
   streamThinkingText?: string;
   streamThinkingHistoryText?: string;
   streamThinkingDurationMs?: number;
-  streamText?: string;
-  streamToolCalls?: StreamToolCall[];
+  streamContent?: string;
   streamError?: string;
   isStreaming?: boolean;
   skills: SkillManifest[];
@@ -850,7 +897,7 @@ export function ChatPanel({
   streamThinkingText,
   streamThinkingHistoryText,
   streamThinkingDurationMs,
-  streamText, streamToolCalls, streamError, isStreaming,
+  streamContent, streamError, isStreaming,
   skills, onToggleSkill,
   usageRecords, projectTree,
 }: ChatPanelProps) {
@@ -858,7 +905,6 @@ export function ChatPanel({
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionSearchRef = useRef<HTMLInputElement>(null);
-  const normalizedStreamToolCalls = (streamToolCalls ?? []).map(toToolCallBlock);
   const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
@@ -896,7 +942,7 @@ export function ChatPanel({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
-  }, [isStreaming, messages, streamError, streamText, streamThinkingText, normalizedStreamToolCalls.length]);
+  }, [isStreaming, messages, streamContent, streamError, streamThinkingText]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1177,14 +1223,13 @@ export function ChatPanel({
           return <AssistantMessage key={msg.id} msg={msg} />;
         })}
 
-        {isStreaming && streamText !== undefined && (
+        {isStreaming && streamContent !== undefined && (
           <AssistantMessage
             streaming={{
               thinkingText: streamThinkingText,
               thinkingHistoryText: streamThinkingHistoryText,
               thinkingDurationMs: streamThinkingDurationMs,
-              text: streamText,
-              toolCalls: normalizedStreamToolCalls,
+              content: streamContent,
               streamError,
             }}
           />

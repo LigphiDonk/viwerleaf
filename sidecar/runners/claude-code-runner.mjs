@@ -68,8 +68,8 @@ function buildSdkOptions(request) {
   options.allowDangerouslySkipPermissions = false;
 
   // Resume an existing session
-  if (request.sessionId) {
-    options.resume = request.sessionId;
+  if (request.remoteSessionId) {
+    options.resume = request.remoteSessionId;
   }
 
   // Inject skill prompts if present
@@ -107,22 +107,12 @@ export async function runClaudeCode(request) {
       ? request.userMessage.trim()
       : "Continue.";
 
-  let capturedSessionId = request.sessionId || null;
+  let capturedSessionId = request.remoteSessionId || null;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
   try {
-    const queryInstance = query({
-      prompt: userMessage,
-      options,
-    });
-
-    for await (const event of queryInstance) {
-      if (event?.session_id && !capturedSessionId) {
-        capturedSessionId = event.session_id;
-      }
-      handleSdkEvent(event);
-    }
+    await streamQuery(options);
   } catch (error) {
     const wasAborted =
       error?.name === "AbortError" ||
@@ -130,7 +120,21 @@ export async function runClaudeCode(request) {
         .toLowerCase()
         .includes("aborted");
 
-    if (!wasAborted) {
+    const canRetryFresh = options.resume && isMissingConversationError(error);
+
+    if (!wasAborted && canRetryFresh) {
+      capturedSessionId = null;
+      const retryOptions = { ...options };
+      delete retryOptions.resume;
+      try {
+        await streamQuery(retryOptions);
+      } catch (retryError) {
+        emit({
+          type: "error",
+          message: retryError?.message || String(retryError),
+        });
+      }
+    } else if (!wasAborted) {
       emit({
         type: "error",
         message: error?.message || String(error),
@@ -145,7 +149,22 @@ export async function runClaudeCode(request) {
       outputTokens: totalOutputTokens,
       model: request.provider?.model || "claude-code",
     },
+    remoteSessionId: capturedSessionId,
   });
+
+  async function streamQuery(queryOptions) {
+    const queryInstance = query({
+      prompt: userMessage,
+      options: queryOptions,
+    });
+
+    for await (const event of queryInstance) {
+      if (event?.session_id) {
+        capturedSessionId = event.session_id;
+      }
+      handleSdkEvent(event);
+    }
+  }
 
   function handleSdkEvent(event) {
     if (!event) return;
@@ -236,4 +255,13 @@ export async function runClaudeCode(request) {
         break;
     }
   }
+}
+
+function isMissingConversationError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("no conversation found") ||
+    message.includes("conversation not found") ||
+    message.includes("session") && message.includes("not found")
+  );
 }

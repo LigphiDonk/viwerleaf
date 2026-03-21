@@ -73,6 +73,7 @@ pub fn run_agent(
     let conn = state.db.lock().expect("db lock poisoned");
     let profile = profile::get_profile(&conn, profile_id).map_err(anyhow::Error::msg)?;
     let prov = provider::get_provider(&conn, &profile.provider_id).map_err(anyhow::Error::msg)?;
+    let remote_session_id = read_remote_session_id(&conn, session_id)?;
     // Load skill prompts for injection (CLI runners use them as appendSystemPrompt)
     let system_prompt =
         skill::load_skill_prompts(&conn, &profile.skill_ids).map_err(anyhow::Error::msg)?;
@@ -96,6 +97,7 @@ pub fn run_agent(
 
     let request = AgentRequest {
         session_id: session_id.clone(),
+        remote_session_id,
         profile_id: profile_id.to_string(),
         provider: AgentProvider {
             vendor: prov.vendor.clone(),
@@ -173,7 +175,8 @@ pub fn run_agent(
     let mut committed_thinking = String::new();
     let mut last_error: Option<String> = None;
     let mut done_usage: Option<UsageInfo> = None;
-    let mut tool_call_log: Vec<(String, String, String)> = Vec::new(); // (toolId, status, preview)
+    let mut final_remote_session_id: Option<String> = None;
+    let mut assistant_timeline: Vec<AssistantTimelineItem> = Vec::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -203,17 +206,26 @@ pub fn run_agent(
                 }
                 StreamChunk::TextDelta { content } => {
                     full_response.push_str(content);
+                    push_timeline_text(&mut assistant_timeline, content);
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
-                StreamChunk::Done { usage } => {
+                StreamChunk::Done {
+                    usage,
+                    remote_session_id,
+                } => {
                     done_usage = Some(usage.clone());
+                    final_remote_session_id = remote_session_id.clone();
                 }
                 StreamChunk::Error { message } => {
                     last_error = Some(message.clone());
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
                 StreamChunk::ToolCallStart { tool_id, .. } => {
-                    tool_call_log.push((tool_id.clone(), "running".into(), String::new()));
+                    assistant_timeline.push(AssistantTimelineItem::Tool {
+                        tool_id: tool_id.clone(),
+                        status: "running".into(),
+                        preview: String::new(),
+                    });
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
                 StreamChunk::ToolCallResult {
@@ -222,19 +234,24 @@ pub fn run_agent(
                     status,
                 } => {
                     let resolved_status = status.as_deref().unwrap_or("completed").to_string();
-                    if let Some(entry) = tool_call_log
+                    let preview = truncate_preview(output, 60);
+                    if let Some(AssistantTimelineItem::Tool {
+                        status,
+                        preview: item_preview,
+                        ..
+                    }) = assistant_timeline
                         .iter_mut()
                         .rev()
-                        .find(|e| e.0 == *tool_id && e.1 == "running")
+                        .find(|item| matches!(item, AssistantTimelineItem::Tool { tool_id: id, status, .. } if id == tool_id && status == "running"))
                     {
-                        entry.1 = resolved_status;
-                        entry.2 = truncate_preview(output, 60);
+                        *status = resolved_status;
+                        *item_preview = preview;
                     } else {
-                        tool_call_log.push((
-                            tool_id.clone(),
-                            resolved_status,
-                            truncate_preview(output, 60),
-                        ));
+                        assistant_timeline.push(AssistantTimelineItem::Tool {
+                            tool_id: tool_id.clone(),
+                            status: resolved_status,
+                            preview,
+                        });
                     }
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
@@ -271,7 +288,7 @@ pub fn run_agent(
         );
         let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
         let partial_content =
-            build_assistant_message_content(&all_thinking, &full_response, &tool_call_log);
+            build_assistant_message_content(&all_thinking, &full_response, &assistant_timeline);
         if !partial_content.trim().is_empty() {
             persist_assistant_message(state, &session_id, profile_id, &partial_content)?;
         }
@@ -286,7 +303,7 @@ pub fn run_agent(
 
     let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
     let final_content =
-        build_assistant_message_content(&all_thinking, &full_response, &tool_call_log);
+        build_assistant_message_content(&all_thinking, &full_response, &assistant_timeline);
     if !final_content.trim().is_empty() {
         persist_assistant_message(state, &session_id, profile_id, &final_content)?;
     } else if let Some(error_message) = last_error {
@@ -296,6 +313,10 @@ pub fn run_agent(
             profile_id,
             &format!("Error: {error_message}"),
         )?;
+    }
+
+    if let Some(remote_session_id) = final_remote_session_id.as_deref() {
+        persist_remote_session_id(state, &session_id, remote_session_id)?;
     }
 
     let usage = done_usage.unwrap_or_else(|| UsageInfo {
@@ -328,7 +349,13 @@ pub fn run_agent(
         *active = None;
     }
 
-    let _ = app_handle.emit("agent:stream", &StreamChunk::Done { usage });
+    let _ = app_handle.emit(
+        "agent:stream",
+        &StreamChunk::Done {
+            usage,
+            remote_session_id: final_remote_session_id,
+        },
+    );
 
     Ok(AgentRunResult {
         session_id: Some(session_id),
@@ -479,6 +506,38 @@ fn ensure_session(
     Ok(())
 }
 
+fn read_remote_session_id(
+    conn: &rusqlite::Connection,
+    session_id: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+
+    let remote_session_id = conn
+        .query_row(
+            "SELECT remote_session_id FROM sessions WHERE id=?1 LIMIT 1",
+            params![session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    Ok(remote_session_id.filter(|value| !value.trim().is_empty()))
+}
+
+fn persist_remote_session_id(
+    state: &AppState,
+    session_id: &str,
+    remote_session_id: &str,
+) -> Result<()> {
+    let conn = state.db.lock().expect("db lock poisoned");
+    conn.execute(
+        "UPDATE sessions SET remote_session_id=?2 WHERE id=?1",
+        params![session_id, remote_session_id],
+    )?;
+    Ok(())
+}
+
 fn touch_session(conn: &rusqlite::Connection, session_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE sessions SET updated_at=datetime('now') WHERE id=?1",
@@ -510,26 +569,66 @@ fn persist_assistant_message(
 fn build_assistant_message_content(
     thinking: &str,
     text: &str,
-    tool_calls: &[(String, String, String)],
+    timeline: &[AssistantTimelineItem],
 ) -> String {
     let mut parts = Vec::new();
     let trimmed_thinking = thinking.trim();
     if !trimmed_thinking.is_empty() {
         parts.push(format!("<think>\n{trimmed_thinking}\n</think>"));
     }
-    if !text.trim().is_empty() {
-        parts.push(text.to_string());
+    if timeline.is_empty() {
+        if !text.trim().is_empty() {
+            parts.push(text.to_string());
+        }
+        return parts.join("\n");
     }
-    if !tool_calls.is_empty() {
-        for (tool_id, _status, preview) in tool_calls {
-            if preview.is_empty() {
-                parts.push(format!("[Tool: {tool_id}]"));
-            } else {
-                parts.push(format!("[Tool: {tool_id}]\n[Result]\n{preview}\n[/Result]"));
+    for item in timeline {
+        match item {
+            AssistantTimelineItem::Text(content) => {
+                if !content.trim().is_empty() {
+                    parts.push(content.clone());
+                }
+            }
+            AssistantTimelineItem::Tool {
+                tool_id,
+                status,
+                preview,
+            } => {
+                let mut lines = vec![format!("[Tool: {tool_id}]")];
+                if status != "completed" {
+                    lines.push(format!("[Status: {status}]"));
+                }
+                if !preview.is_empty() {
+                    lines.push("[Result]".into());
+                    lines.push(preview.clone());
+                    lines.push("[/Result]".into());
+                }
+                parts.push(lines.join("\n"));
             }
         }
     }
     parts.join("\n")
+}
+
+#[derive(Debug, Clone)]
+enum AssistantTimelineItem {
+    Text(String),
+    Tool {
+        tool_id: String,
+        status: String,
+        preview: String,
+    },
+}
+
+fn push_timeline_text(timeline: &mut Vec<AssistantTimelineItem>, content: &str) {
+    if content.is_empty() {
+        return;
+    }
+
+    match timeline.last_mut() {
+        Some(AssistantTimelineItem::Text(existing)) => existing.push_str(content),
+        _ => timeline.push(AssistantTimelineItem::Text(content.to_string())),
+    }
 }
 
 fn merge_thinking_segments(committed: &str, active: &str) -> String {

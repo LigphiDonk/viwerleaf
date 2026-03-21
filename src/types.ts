@@ -229,7 +229,7 @@ export type StreamChunk =
   | { type: "tool_call_result"; toolId: string; output: string; status?: "completed" | "error" }
   | { type: "patch"; filePath: string; startLine: number; endLine: number; newContent: string; diff?: DiffLine[] }
   | { type: "error"; message: string }
-  | { type: "done"; usage: { inputTokens: number; outputTokens: number; model: string } };
+  | { type: "done"; usage: { inputTokens: number; outputTokens: number; model: string }; remoteSessionId?: string };
 
 export interface FigureBriefDraft {
   id: string;

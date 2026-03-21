@@ -24,11 +24,13 @@ const STAGE_ORDER: ResearchStage[] = [
   "promotion",
 ];
 
-const COLUMN_WIDTH = 320;
-const COLUMN_GAP = 36;
-const STAGE_Y = 36;
-const TASK_Y = 198;
-const TASK_GAP = 176;
+const STAGE_X = 540;
+const STAGE_Y = 44;
+const STAGE_STEP_Y = 290;
+const TASK_BRANCH_Y = 146;
+const TASK_ROW_GAP = 148;
+const TASK_COLUMN_GAP = 296;
+const TASKS_PER_ROW = 3;
 
 function stageNodeId(stage: ResearchStage) {
   return `stage:${stage}`;
@@ -36,6 +38,24 @@ function stageNodeId(stage: ResearchStage) {
 
 function taskNodeId(taskId: string) {
   return `task:${taskId}`;
+}
+
+function buildTaskOffsets(count: number) {
+  const rows = Math.max(1, Math.ceil(count / TASKS_PER_ROW));
+  const offsets: Array<{ x: number; y: number }> = [];
+
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    const rowCount = Math.min(TASKS_PER_ROW, count - rowIndex * TASKS_PER_ROW);
+    const startX = -((rowCount - 1) * TASK_COLUMN_GAP) / 2;
+    for (let columnIndex = 0; columnIndex < rowCount; columnIndex += 1) {
+      offsets.push({
+        x: startX + columnIndex * TASK_COLUMN_GAP,
+        y: rowIndex * TASK_ROW_GAP,
+      });
+    }
+  }
+
+  return offsets;
 }
 
 export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
@@ -51,14 +71,13 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
       continue;
     }
 
-    const x = 48 + stageIndex * (COLUMN_WIDTH + COLUMN_GAP);
     const stageId = stageNodeId(stage);
+    const stageY = STAGE_Y + stageIndex * STAGE_STEP_Y;
 
     nodes.push({
       id: stageId,
       type: "researchStage",
-      position: { x, y: STAGE_Y },
-      draggable: false,
+      position: { x: STAGE_X, y: stageY },
       selectable: true,
       data: {
         kind: "stage",
@@ -77,13 +96,18 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
     }
 
     const tasks = research.tasks.filter((task) => task.stage === stage);
+    const taskOffsets = buildTaskOffsets(tasks.length);
+
     tasks.forEach((task, taskIndex) => {
+      const offset = taskOffsets[taskIndex] ?? { x: 0, y: taskIndex * TASK_ROW_GAP };
       const taskId = taskNodeId(task.id);
       nodes.push({
         id: taskId,
         type: "researchTask",
-        position: { x, y: TASK_Y + taskIndex * TASK_GAP },
-        draggable: false,
+        position: {
+          x: STAGE_X + offset.x,
+          y: stageY + TASK_BRANCH_Y + offset.y,
+        },
         selectable: true,
         data: {
           kind: "task",
@@ -91,15 +115,13 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
         },
       });
 
-      if (taskIndex === 0) {
-        edges.push({
-          id: `stage:${stage}:${task.id}`,
-          source: stageId,
-          target: taskId,
-          type: "smoothstep",
-          animated: research.currentStage === stage,
-        });
-      }
+      edges.push({
+        id: `stage:${stage}:${task.id}`,
+        source: stageId,
+        target: taskId,
+        type: "smoothstep",
+        animated: research.nextTask?.id === task.id,
+      });
 
       task.dependencies.forEach((dependencyId) => {
         edges.push({

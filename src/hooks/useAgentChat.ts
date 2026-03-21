@@ -9,7 +9,6 @@ import type {
   AgentSessionSummary,
   DiffLine,
   ProjectFile,
-  StreamToolCall,
   UsageRecord,
   WorkspaceSnapshot,
 } from "../types";
@@ -31,37 +30,22 @@ function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
   }
 }
 
-function serializeStreamToolCalls(toolCalls: StreamToolCall[]) {
-  return toolCalls
-    .map((call) => {
-      const resultBlock = call.output ? `[Result]\n${call.output}\n[/Result]\n` : "";
-      return `[Tool: ${call.toolId}]\n${resultBlock}`.trimEnd();
-    })
-    .join("\n\n");
-}
-
 function buildAssistantSnapshotContent({
   thinkingText,
-  text,
-  toolCalls,
+  content,
 }: {
   thinkingText: string;
-  text: string;
-  toolCalls: StreamToolCall[];
+  content: string;
 }) {
   const parts: string[] = [];
   const trimmedThinking = thinkingText.trim();
-  const trimmedText = text.trim();
-  const serializedToolCalls = serializeStreamToolCalls(toolCalls);
+  const trimmedContent = content.trim();
 
   if (trimmedThinking) {
     parts.push(`<think>\n${trimmedThinking}\n</think>`);
   }
-  if (trimmedText) {
-    parts.push(trimmedText);
-  }
-  if (serializedToolCalls) {
-    parts.push(serializedToolCalls);
+  if (trimmedContent) {
+    parts.push(trimmedContent);
   }
 
   return parts.join("\n\n").trim();
@@ -93,8 +77,7 @@ export interface AgentChatState {
   streamThinkingText: string;
   streamThinkingHistoryText: string;
   streamThinkingDurationMs: number;
-  streamText: string;
-  streamToolCalls: StreamToolCall[];
+  streamContent: string;
   streamError: string;
   pendingPatch: { filePath: string; content: string; summary: string; diff?: DiffLine[] } | null;
   setActiveProfileId: (profileId: AgentProfileId) => void;
@@ -123,8 +106,7 @@ export function useAgentChat({
   const [streamThinkingText, setStreamThinkingText] = useState("");
   const [streamThinkingHistoryText, setStreamThinkingHistoryText] = useState("");
   const [streamThinkingDurationMs, setStreamThinkingDurationMs] = useState(0);
-  const [streamText, setStreamText] = useState("");
-  const [streamToolCalls, setStreamToolCalls] = useState<StreamToolCall[]>([]);
+  const [streamContent, setStreamContent] = useState("");
   const [streamError, setStreamError] = useState("");
   const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string; diff?: DiffLine[] } | null>(
     null,
@@ -134,7 +116,6 @@ export function useAgentChat({
   const streamFlushTimerRef = useRef<number | null>(null);
   const streamThinkingRef = useRef("");
   const streamThinkingStartedAtRef = useRef<number | null>(null);
-  const streamToolSeqRef = useRef(0);
   const currentStreamSessionIdRef = useRef("");
   const didBootstrapRef = useRef(false);
 
@@ -149,7 +130,7 @@ export function useAgentChat({
       return;
     }
     streamBufferRef.current = "";
-    setStreamText((current) => current + delta);
+    setStreamContent((current) => current + delta);
   });
 
   const scheduleStreamFlush = useEffectEvent(() => {
@@ -173,7 +154,7 @@ export function useAgentChat({
             : 1;
       const delta = queued.slice(0, batchSize);
       streamBufferRef.current = queued.slice(batchSize);
-      setStreamText((current) => current + delta);
+      setStreamContent((current) => current + delta);
       streamFlushTimerRef.current = window.setTimeout(tick, 22);
     };
 
@@ -229,57 +210,19 @@ export function useAgentChat({
     clearThinkingText();
     setStreamThinkingHistoryText("");
     setStreamThinkingDurationMs(0);
-    setStreamText("");
-    setStreamToolCalls([]);
+    setStreamContent("");
     setStreamError("");
-    streamToolSeqRef.current = 0;
   });
 
-  const pushStreamToolStart = useEffectEvent((toolId: string, args: Record<string, unknown>) => {
-    const seq = streamToolSeqRef.current + 1;
-    streamToolSeqRef.current = seq;
-    setStreamToolCalls((current) => [
-      ...current,
-      {
-        id: `${Date.now()}-${seq}`,
-        toolId,
-        args,
-        status: "running",
-      },
-    ]);
+  const appendStreamMarker = useEffectEvent((marker: string) => {
+    if (!marker) {
+      return;
+    }
+    setStreamContent((current) => {
+      const spacer = current && !current.endsWith("\n") ? "\n" : "";
+      return `${current}${spacer}${marker}`;
+    });
   });
-
-  const pushStreamToolResult = useEffectEvent(
-    (toolId: string, output: string, status: "completed" | "error" = "completed") => {
-      setStreamToolCalls((current) => {
-        for (let index = current.length - 1; index >= 0; index -= 1) {
-          const item = current[index];
-          if (item.toolId !== toolId || item.status !== "running") {
-            continue;
-          }
-          const next = [...current];
-          next[index] = {
-            ...item,
-            output,
-            status,
-          };
-          return next;
-        }
-
-        const seq = streamToolSeqRef.current + 1;
-        streamToolSeqRef.current = seq;
-        return [
-          ...current,
-          {
-            id: `${Date.now()}-${seq}`,
-            toolId,
-            output,
-            status,
-          },
-        ];
-      });
-    },
-  );
 
   const appendAssistantErrorMessage = useEffectEvent((message: string) => {
     setMessages((current) => [
@@ -298,8 +241,7 @@ export function useAgentChat({
   const appendInterruptedStreamMessage = useEffectEvent(() => {
     const content = buildAssistantSnapshotContent({
       thinkingText: mergeThinkingSegments(streamThinkingHistoryText, streamThinkingRef.current),
-      text: `${streamText}${streamBufferRef.current}`,
-      toolCalls: streamToolCalls,
+      content: `${streamContent}${streamBufferRef.current}`,
     });
 
     if (!content) {
@@ -438,11 +380,13 @@ export function useAgentChat({
           break;
         case "tool_call_start":
           flushStreamBuffer();
-          pushStreamToolStart(chunk.toolId, chunk.args);
+          appendStreamMarker(`[Tool: ${chunk.toolId}]`);
           break;
         case "tool_call_result":
           flushStreamBuffer();
-          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
+          appendStreamMarker(
+            `${chunk.status && chunk.status !== "completed" ? `[Status: ${chunk.status}]\n` : ""}[Result]\n${chunk.output}\n[/Result]`,
+          );
           break;
         case "patch":
           setPendingPatch({
@@ -582,11 +526,13 @@ export function useAgentChat({
           break;
         case "tool_call_start":
           flushStreamBuffer();
-          pushStreamToolStart(chunk.toolId, chunk.args);
+          appendStreamMarker(`[Tool: ${chunk.toolId}]`);
           break;
         case "tool_call_result":
           flushStreamBuffer();
-          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
+          appendStreamMarker(
+            `${chunk.status && chunk.status !== "completed" ? `[Status: ${chunk.status}]\n` : ""}[Result]\n${chunk.output}\n[/Result]`,
+          );
           break;
         case "patch":
           setPendingPatch({
@@ -666,8 +612,7 @@ export function useAgentChat({
     streamThinkingText,
     streamThinkingHistoryText,
     streamThinkingDurationMs,
-    streamText,
-    streamToolCalls,
+    streamContent,
     streamError,
     pendingPatch,
     setActiveProfileId,

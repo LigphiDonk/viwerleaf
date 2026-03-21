@@ -5,6 +5,7 @@ import {
   Handle,
   Position,
   ReactFlow,
+  useNodesState,
   type NodeProps,
   type NodeTypes,
 } from "@xyflow/react";
@@ -35,21 +36,54 @@ interface ResearchCanvasProps {
   onOpenWriting: () => void;
 }
 
-function StageNode({ data }: NodeProps<ResearchStageNode>) {
+function formatTaskStatus(task: ResearchTask, isZh: boolean) {
+  if (!isZh) {
+    return task.status;
+  }
+  return ({
+    pending: "待开始",
+    "in-progress": "进行中",
+    done: "已完成",
+    review: "待检查",
+    deferred: "已延后",
+    cancelled: "已取消",
+  }[task.status] ?? task.status);
+}
+
+function formatPriority(task: ResearchTask, isZh: boolean) {
+  if (!isZh) {
+    return task.priority;
+  }
+  return ({
+    high: "高优先级",
+    medium: "中优先级",
+    low: "低优先级",
+  }[task.priority] ?? task.priority);
+}
+
+function StageNode({ data, selected }: NodeProps<ResearchStageNode>) {
   const stage = data.stage;
-  const isZh = stage.label !== "Survey" && stage.label !== "Ideation" && stage.label !== "Experiment" && stage.label !== "Publication" && stage.label !== "Promotion";
+  const completion = stage.totalTasks > 0 ? Math.round((stage.doneTasks / stage.totalTasks) * 100) : 0;
   return (
-    <div className={`research-stage-node is-${stage.status}`}>
+    <div className={`research-stage-node is-${stage.status}${selected ? " is-selected" : ""}`}>
       <Handle type="target" position={Position.Top} className="research-node-handle" />
+      <div className="research-stage-node__stripe" />
       <div className="research-stage-node__eyebrow">{stage.label}</div>
       <div className="research-stage-node__title">{stage.description}</div>
+      <div className="research-stage-node__progress">
+        <span>{completion}%</span>
+        <div className="research-stage-node__progress-bar">
+          <div className="research-stage-node__progress-fill" style={{ width: `${completion}%` }} />
+        </div>
+      </div>
       <div className="research-stage-node__stats">
-        <span>{stage.doneTasks}/{stage.totalTasks || 0} {isZh ? "任务" : "tasks"}</span>
-        <span>{stage.artifactCount} {isZh ? "产物" : "artifacts"}</span>
+        <span>{stage.doneTasks}/{stage.totalTasks || 0}</span>
+        <span>{stage.taskCounts.inProgress} active</span>
+        <span>{stage.artifactCount} assets</span>
       </div>
       {stage.suggestedSkills.length > 0 ? (
         <div className="research-node-chips">
-          {stage.suggestedSkills.slice(0, 2).map((skill: string) => (
+          {stage.suggestedSkills.slice(0, 2).map((skill) => (
             <span key={skill} className="research-node-chip">{skill}</span>
           ))}
         </div>
@@ -59,25 +93,26 @@ function StageNode({ data }: NodeProps<ResearchStageNode>) {
   );
 }
 
-function TaskNode({ data }: NodeProps<ResearchTaskNode>) {
+function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
   const task = data.task;
   const isZh = /[\u4e00-\u9fff]/.test(task.title);
   return (
-    <div className={`research-task-node is-${task.status}`}>
+    <div className={`research-task-node is-${task.status}${selected ? " is-selected" : ""}`}>
       <Handle type="target" position={Position.Top} className="research-node-handle" />
+      <div className="research-task-node__stripe" />
       <div className="research-task-node__header">
-        <span className="research-task-node__status">{isZh
-          ? ({ pending: "待开始", "in-progress": "进行中", done: "已完成", review: "待检查", deferred: "已延后", cancelled: "已取消" }[task.status] ?? task.status)
-          : task.status}</span>
-        <span className="research-task-node__priority">{isZh
-          ? ({ high: "高优先级", medium: "中优先级", low: "低优先级" }[task.priority] ?? task.priority)
-          : task.priority}</span>
+        <span className="research-task-node__status">{formatTaskStatus(task, isZh)}</span>
+        <span className="research-task-node__priority">{formatPriority(task, isZh)}</span>
       </div>
       <div className="research-task-node__title">{task.title}</div>
       <div className="research-task-node__body">{task.description}</div>
+      <div className="research-task-node__meta">
+        <span>{task.inputsNeeded.length} {isZh ? "输入" : "inputs"}</span>
+        <span>{task.artifactPaths.length} {isZh ? "产物" : "artifacts"}</span>
+      </div>
       {task.suggestedSkills.length > 0 ? (
         <div className="research-node-chips">
-          {task.suggestedSkills.slice(0, 2).map((skill: string) => (
+          {task.suggestedSkills.slice(0, 2).map((skill) => (
             <span key={skill} className="research-node-chip">{skill}</span>
           ))}
         </div>
@@ -159,8 +194,8 @@ function TaskInspector({
       <h3>{task.title}</h3>
       <p>{task.description}</p>
       <div className="research-inspector__meta">
-        <span>{isZh ? "状态" : "Status"}: {task.status}</span>
-        <span>{isZh ? "优先级" : "Priority"}: {task.priority}</span>
+        <span>{isZh ? "状态" : "Status"}: {formatTaskStatus(task, isZh)}</span>
+        <span>{isZh ? "优先级" : "Priority"}: {formatPriority(task, isZh)}</span>
       </div>
       {task.inputsNeeded.length > 0 ? (
         <>
@@ -217,13 +252,15 @@ function StageInspector({
   onOpenWriting: () => void;
 }) {
   const isZh = locale === "zh-CN";
+  const completion = stage.totalTasks > 0 ? Math.round((stage.doneTasks / stage.totalTasks) * 100) : 0;
   return (
     <div className="research-inspector__section">
       <div className="research-inspector__eyebrow">{stage.label}</div>
       <h3>{stage.description}</h3>
       <div className="research-inspector__meta">
         <span>{isZh ? "状态" : "Status"}: {stage.status}</span>
-        <span>{isZh ? "已完成任务" : "Tasks done"}: {stage.doneTasks}/{stage.totalTasks || 0}</span>
+        <span>{isZh ? "完成度" : "Completion"}: {completion}%</span>
+        <span>{isZh ? "任务" : "Tasks"}: {stage.doneTasks}/{stage.totalTasks || 0}</span>
       </div>
       {stage.missingInputs.length > 0 ? (
         <>
@@ -264,6 +301,42 @@ function StageInspector({
   );
 }
 
+function ResearchStageRail({
+  locale,
+  stages,
+  activeSelectionId,
+  onSelectStage,
+}: {
+  locale: AppLocale;
+  stages: ResearchStageSummary[];
+  activeSelectionId: string | null;
+  onSelectStage: (stage: ResearchStageSummary) => void;
+}) {
+  const isZh = locale === "zh-CN";
+  return (
+    <div className="research-canvas__rail">
+      {stages.map((stage, index) => {
+        const completion = stage.totalTasks > 0 ? Math.round((stage.doneTasks / stage.totalTasks) * 100) : 0;
+        const isSelected = activeSelectionId === `stage:${stage.stage}`;
+        return (
+          <button
+            key={stage.stage}
+            type="button"
+            className={`research-canvas__rail-item is-${stage.status}${isSelected ? " is-selected" : ""}`}
+            onClick={() => onSelectStage(stage)}
+          >
+            <span className="research-canvas__rail-index">{index + 1}</span>
+            <span className="research-canvas__rail-main">
+              <strong>{stage.label}</strong>
+              <small>{completion}% · {stage.doneTasks}/{stage.totalTasks || 0} {isZh ? "任务" : "tasks"}</small>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ResearchCanvas({
   locale,
   research,
@@ -286,16 +359,38 @@ export function ResearchCanvas({
   const [selectionId, setSelectionId] = useState<string | null>(
     localizedResearch ? defaultResearchSelection(localizedResearch) : null,
   );
+  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
 
   useEffect(() => {
-    setSelectionId(localizedResearch ? defaultResearchSelection(localizedResearch) : null);
-  }, [localizedResearch]);
+    if (!localizedResearch) {
+      setSelectionId(null);
+      setNodes([]);
+      return;
+    }
+
+    setSelectionId(defaultResearchSelection(localizedResearch));
+    setNodes((currentNodes) => {
+      const currentPositionById = new Map(currentNodes.map((node) => [node.id, node.position]));
+      return graph.nodes.map((node) => ({
+        ...node,
+        position: currentPositionById.get(node.id) ?? node.position,
+      }));
+    });
+  }, [graph.nodes, localizedResearch, setNodes]);
 
   if (needsBootstrap) {
     return <ResearchOnboarding locale={locale} research={localizedResearch} isBusy={isBusy} onBootstrap={onBootstrap} />;
   }
 
   const resolved = selectionToEntity(localizedResearch, selectionId);
+  const totalTasks = localizedResearch.tasks.length;
+  const doneTasks = localizedResearch.tasks.filter((task) => task.status === "done").length;
+  const reviewTasks = localizedResearch.tasks.filter((task) => task.status === "review").length;
+  const inProgressTasks = localizedResearch.tasks.filter((task) => task.status === "in-progress").length;
+  const completion = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+  const currentStageLabel =
+    localizedResearch.stageSummaries.find((item) => item.stage === localizedResearch.currentStage)?.label ??
+    localizedResearch.currentStage;
 
   return (
     <div className="research-canvas-shell">
@@ -307,21 +402,55 @@ export function ResearchCanvas({
             <p>{localizedResearch.briefGoal}</p>
           </div>
           <div className="research-canvas__header-meta">
-            <span>{isZh ? "当前阶段" : "Current stage"}: {resolved.stage?.label ?? localizedResearch.stageSummaries.find((item) => item.stage === localizedResearch.currentStage)?.label ?? localizedResearch.currentStage}</span>
+            <span>{isZh ? "当前阶段" : "Current stage"}: {currentStageLabel}</span>
             {localizedResearch.nextTask ? <span>{isZh ? "下一任务" : "Next task"}: {localizedResearch.nextTask.title}</span> : null}
           </div>
         </div>
+
+        <div className="research-canvas__overview">
+          <div className="research-canvas__metric">
+            <strong>{completion}%</strong>
+            <span>{isZh ? "总体完成度" : "Overall completion"}</span>
+          </div>
+          <div className="research-canvas__metric">
+            <strong>{inProgressTasks}</strong>
+            <span>{isZh ? "进行中任务" : "Tasks in progress"}</span>
+          </div>
+          <div className="research-canvas__metric">
+            <strong>{reviewTasks}</strong>
+            <span>{isZh ? "待检查任务" : "Tasks in review"}</span>
+          </div>
+          <div className="research-canvas__metric">
+            <strong>{localizedResearch.artifactPaths.publication.length}</strong>
+            <span>{isZh ? "写作产物" : "Publication artifacts"}</span>
+          </div>
+        </div>
+
+        <ResearchStageRail
+          locale={locale}
+          stages={localizedResearch.stageSummaries}
+          activeSelectionId={selectionId}
+          onSelectStage={(stage) => setSelectionId(`stage:${stage.stage}`)}
+        />
+
         <div className="research-canvas__flow">
           <ReactFlow
-            nodes={graph.nodes}
+            nodes={nodes}
             edges={graph.edges}
             nodeTypes={nodeTypes}
-            nodesDraggable={false}
-            fitView
-            proOptions={{ hideAttribution: true }}
+            onNodesChange={onNodesChange}
             onNodeClick={(_event, node) => setSelectionId(node.id)}
+            onPaneClick={() => setSelectionId(null)}
+            nodesDraggable
+            nodesConnectable={false}
+            fitView
+            fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}
+            minZoom={0.45}
+            maxZoom={1.45}
+            panOnScroll
+            proOptions={{ hideAttribution: true }}
           >
-            <Background color="#d7dee8" gap={20} size={1.5} />
+            <Background color="rgba(15, 23, 42, 0.14)" gap={22} size={1.3} />
             <Controls showInteractive={false} />
           </ReactFlow>
         </div>

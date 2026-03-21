@@ -940,8 +940,7 @@ function App() {
     streamThinkingText,
     streamThinkingHistoryText,
     streamThinkingDurationMs,
-    streamText,
-    streamToolCalls,
+    streamContent,
     streamError,
     pendingPatch,
     handleRunAgent: runAgentBase,
@@ -3631,8 +3630,7 @@ function App() {
               streamThinkingText={streamThinkingText}
               streamThinkingHistoryText={streamThinkingHistoryText}
               streamThinkingDurationMs={streamThinkingDurationMs}
-              streamText={streamText}
-              streamToolCalls={streamToolCalls}
+              streamContent={streamContent}
               streamError={streamError}
               isStreaming={isStreaming}
               onSendMessage={handleSendMessage}

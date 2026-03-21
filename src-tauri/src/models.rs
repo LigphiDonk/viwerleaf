@@ -230,6 +230,7 @@ pub struct TestResult {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRequest {
     pub session_id: String,
+    pub remote_session_id: Option<String>,
     pub profile_id: String,
     pub provider: AgentProvider,
     #[serde(default)]
@@ -301,7 +302,10 @@ pub enum StreamChunk {
     #[serde(rename = "error")]
     Error { message: String },
     #[serde(rename = "done")]
-    Done { usage: UsageInfo },
+    Done {
+        usage: UsageInfo,
+        remote_session_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
