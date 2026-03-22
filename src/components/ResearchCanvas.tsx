@@ -148,7 +148,18 @@ function StageContainerNode({ data, selected }: NodeProps<ResearchStageContainer
       className={`research-stage-container is-${stage.status}${selected ? " is-selected" : ""}${isCollapsed ? " is-collapsed" : ""}`}
       style={{ width: data.containerWidth, height: data.containerHeight }}
     >
-      <Handle type="target" position={Position.Top} className="research-node-handle" />
+      <Handle
+        id="stage-flow-in"
+        type="target"
+        position={Position.Top}
+        className="research-node-handle research-node-handle--stage-flow-in"
+      />
+      <Handle
+        id="stage-task-entry"
+        type="source"
+        position={Position.Top}
+        className="research-node-handle research-node-handle--stage-task-entry"
+      />
 
       <div className="research-stage-container__header">
         <div className="research-stage-container__stripe" />
@@ -223,7 +234,12 @@ function StageContainerNode({ data, selected }: NodeProps<ResearchStageContainer
         </div>
       ) : null}
 
-      <Handle type="source" position={Position.Bottom} className="research-node-handle" />
+      <Handle
+        id="stage-flow-out"
+        type="source"
+        position={Position.Bottom}
+        className="research-node-handle research-node-handle--stage-flow-out"
+      />
     </div>
   );
 }
@@ -248,7 +264,7 @@ function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
         `research-task-node is-${task.status}${selected ? " is-selected" : ""}${data.isCurrentTask ? " is-current-task" : ""}${isExecutable ? " is-executable" : ""}${isBlocked ? " is-blocked" : ""}`
       }
     >
-      <Handle type="target" position={Position.Top} className="research-node-handle" />
+      <Handle id="task-flow-in" type="target" position={Position.Top} className="research-node-handle" />
       <div className="research-task-node__stripe" />
       <div className="research-task-node__header">
         <span className={`research-task-node__status is-${statusIcon}`}>
@@ -284,7 +300,7 @@ function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
           ))}
         </div>
       ) : null}
-      <Handle type="source" position={Position.Bottom} className="research-node-handle" />
+      <Handle id="task-flow-out" type="source" position={Position.Bottom} className="research-node-handle" />
     </div>
   );
 }

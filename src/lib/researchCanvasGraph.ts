@@ -47,6 +47,11 @@ const TASK_NODE_WIDTH = 292;
 const TASK_NODE_HEIGHT = 278;
 const TASK_COLUMN_GAP = 92;
 const TASK_ROW_GAP = 136;
+const STAGE_FLOW_IN_HANDLE = "stage-flow-in";
+const STAGE_TASK_ENTRY_HANDLE = "stage-task-entry";
+const STAGE_FLOW_OUT_HANDLE = "stage-flow-out";
+const TASK_FLOW_IN_HANDLE = "task-flow-in";
+const TASK_FLOW_OUT_HANDLE = "task-flow-out";
 
 /* Container layout constants */
 const CONTAINER_HEADER_H = 88;
@@ -181,7 +186,9 @@ export function buildResearchCanvasGraph(
       edges.push({
         id: `flow:${STAGE_ORDER[stageIndex - 1]}:${stage}`,
         source: stageNodeId(STAGE_ORDER[stageIndex - 1]),
+        sourceHandle: STAGE_FLOW_OUT_HANDLE,
         target: stageId,
+        targetHandle: STAGE_FLOW_IN_HANDLE,
         type: "default",
         animated: research.currentStage === stage,
         style: {
@@ -221,7 +228,9 @@ export function buildResearchCanvasGraph(
             edges.push({
               id: `stage:${stage}:${task.id}`,
               source: stageId,
+              sourceHandle: STAGE_TASK_ENTRY_HANDLE,
               target: taskId,
+              targetHandle: TASK_FLOW_IN_HANDLE,
               type: "default",
               animated: research.nextTask?.id === task.id,
               style: {
@@ -239,7 +248,9 @@ export function buildResearchCanvasGraph(
             edges.push({
               id: `dep:${dependencyId}:${task.id}`,
               source: taskNodeId(dependencyId),
+              sourceHandle: TASK_FLOW_OUT_HANDLE,
               target: taskId,
+              targetHandle: TASK_FLOW_IN_HANDLE,
               type: "default",
               animated: research.nextTask?.id === task.id,
               style: {

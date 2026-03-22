@@ -165,6 +165,15 @@ describe("research canvas graph", () => {
     expect(graph.edges.some((edge) => edge.id === "dep:survey-1:publication-1")).toBe(true);
   });
 
+  it("routes stage entry edges from the stage top handle into the first task top handle", () => {
+    const graph = buildResearchCanvasGraph(sampleResearch);
+    const stageEntryEdge = graph.edges.find((edge) => edge.id === "stage:publication:publication-1");
+
+    expect(stageEntryEdge).toBeDefined();
+    expect(stageEntryEdge?.sourceHandle).toBe("stage-task-entry");
+    expect(stageEntryEdge?.targetHandle).toBe("task-flow-in");
+  });
+
   it("defaults selection to the next task", () => {
     expect(defaultResearchSelection(sampleResearch)).toBe("task:publication-1");
   });

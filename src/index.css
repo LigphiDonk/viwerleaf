@@ -6788,6 +6788,15 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
   box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18);
 }
 
+.research-node-handle--stage-flow-in,
+.research-node-handle--stage-task-entry {
+  left: 50%;
+}
+
+.research-node-handle--stage-task-entry {
+  top: 0;
+}
+
 .research-stage-node.is-active,
 .research-task-node.is-in-progress,
 .research-task-node.is-review {
