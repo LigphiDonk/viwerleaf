@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import type { ProviderConfig, CliAgentStatus } from "../types";
-import { AGENT_BRANDS, getAgentBrand as getBrand } from "../lib/agentCatalog";
+import {
+  AGENT_BRANDS,
+  getAgentBrand as getBrand,
+  normalizeProviderMcpServers,
+  readProviderMcpServers,
+  writeProviderMcpServers,
+} from "../lib/agentCatalog";
 import { desktop } from "../lib/desktop";
 
 /* ── Provider Card (active provider display) ───────────────── */
@@ -236,18 +242,44 @@ interface EditModalProps {
 
 export function ProviderEditModal({ provider, onSave, onClose }: EditModalProps) {
   const brand = getBrand(provider.vendor);
+  const zoteroPreset = JSON.stringify(
+    {
+      zotero: {
+        type: "stdio",
+        command: "zotero-mcp",
+        env: {
+          ZOTERO_LOCAL: "true",
+        },
+      },
+    },
+    null,
+    2,
+  );
   const [form, setForm] = useState({
     name: provider.name ?? "",
     defaultModel: provider.defaultModel ?? "",
+    mcpJson: JSON.stringify(readProviderMcpServers(provider), null, 2),
   });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSave() {
+    let parsedMcpServers;
+    try {
+      parsedMcpServers = form.mcpJson.trim()
+        ? normalizeProviderMcpServers(JSON.parse(form.mcpJson))
+        : {};
+    } catch {
+      setError("MCP 配置必须是合法 JSON。");
+      return;
+    }
+
     setSaving(true);
     try {
       await onSave({
         name: form.name.trim() || brand.label,
         defaultModel: form.defaultModel.trim(),
+        metaJson: writeProviderMcpServers(provider, parsedMcpServers),
       });
       onClose();
     } finally {
@@ -271,6 +303,41 @@ export function ProviderEditModal({ provider, onSave, onClose }: EditModalProps)
             模型
             <input className="sidebar-input" value={form.defaultModel} onChange={e => setForm(f => ({ ...f, defaultModel: e.target.value }))} placeholder={brand.models[0]?.value || "model-name"} />
           </label>
+          <label className="modal-label">
+            MCP Servers JSON
+            <textarea
+              className="sidebar-input"
+              rows={9}
+              value={form.mcpJson}
+              onChange={(e) => {
+                setError("");
+                setForm((current) => ({ ...current, mcpJson: e.target.value }));
+              }}
+              spellCheck={false}
+              placeholder={`{\n  "zotero": {\n    "type": "stdio",\n    "command": "zotero-mcp"\n  }\n}`}
+              style={{ resize: "vertical", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+            />
+          </label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 8 }}>
+            <div style={{ color: "rgba(15, 23, 42, 0.7)", fontSize: 12, lineHeight: 1.5 }}>
+              目前仅支持 `stdio` MCP。若本机已安装 `zotero-mcp`，应用会自动把 Zotero 作为默认 MCP 挂上。
+            </div>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => {
+                setError("");
+                setForm((current) => ({ ...current, mcpJson: zoteroPreset }));
+              }}
+            >
+              填入 Zotero 预设
+            </button>
+          </div>
+          {error ? (
+            <div style={{ marginTop: 8, color: "#b91c1c", fontSize: 12 }}>
+              {error}
+            </div>
+          ) : null}
           <div className="agent-model-chips" style={{ marginTop: 8 }}>
             {brand.models.map((model) => (
               <button

@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import type {
+  CliAgentStatus,
   LiteratureItem,
   LiteratureCandidate,
   LiteratureSearchResult,
+  ZoteroSearchResult,
 } from "../types";
 import { desktop } from "../lib/desktop";
 
@@ -19,6 +21,7 @@ function generateId() {
 
 /* ── Types ── */
 type LiteratureTab = "inbox" | "library" | "search";
+type LiteratureSearchSource = "local" | "zotero";
 
 interface Props {
   locale: string;
@@ -37,9 +40,16 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
   const [searchResults, setSearchResults] = useState<LiteratureSearchResult[]>(
     [],
   );
+  const [zoteroResults, setZoteroResults] = useState<ZoteroSearchResult[]>([]);
+  const [searchSource, setSearchSource] = useState<LiteratureSearchSource>("local");
+  const [selectedZoteroKey, setSelectedZoteroKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [zoteroStatus, setZoteroStatus] = useState<CliAgentStatus | null>(null);
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
+  const selectedZoteroResult = zoteroResults.find((item) => item.itemKey === selectedZoteroKey) ?? null;
   const visibleLibraryItems = useMemo(
     () =>
       filterTaskId
@@ -80,20 +90,51 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
     }
   }, [filterTaskId, selectedId, visibleLibraryItems]);
 
+  useEffect(() => {
+    desktop
+      .detectZoteroMcp()
+      .then((status) => setZoteroStatus(status))
+      .catch((error) => {
+        console.warn("failed to detect zotero-mcp", error);
+        setZoteroStatus({ name: "zotero-mcp", available: false });
+      });
+  }, []);
+
   /* ── Handlers ── */
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setZoteroResults([]);
+      setSelectedZoteroKey(null);
+      setSearchError("");
       return;
     }
+
+    setIsSearching(true);
+    setSearchError("");
     try {
-      const results = await desktop.searchLiterature(searchQuery);
-      setSearchResults(results);
+      if (searchSource === "zotero") {
+        const results = await desktop.searchZoteroLiterature(searchQuery);
+        setZoteroResults(results);
+        setSearchResults([]);
+        setSelectedZoteroKey(results[0]?.itemKey ?? null);
+      } else {
+        const results = await desktop.searchLiterature(searchQuery);
+        setSearchResults(results);
+        setZoteroResults([]);
+        setSelectedZoteroKey(null);
+        if (results[0]) {
+          setSelectedId(results[0].item.id);
+        }
+      }
       setTab("search");
     } catch (err) {
+      setSearchError(err instanceof Error ? err.message : String(err));
       console.error("Search failed:", err);
+    } finally {
+      setIsSearching(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, searchSource]);
 
   const handleAddManual = useCallback(async () => {
     const title = prompt(t(locale, "输入文献标题", "Enter paper title"));
@@ -218,6 +259,21 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
     [],
   );
 
+  const handleImportZotero = useCallback(
+    async (itemKey: string, libraryId: string) => {
+      try {
+        const item = await desktop.importZoteroLiterature(itemKey, libraryId || undefined);
+        setSelectedId(item.id);
+        setTab("library");
+        await refresh();
+      } catch (err) {
+        setSearchError(err instanceof Error ? err.message : String(err));
+        console.error("Failed to import Zotero item:", err);
+      }
+    },
+    [refresh],
+  );
+
   /* ── Render ── */
   return (
     <div className="literature-manager">
@@ -249,10 +305,46 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
         </div>
 
         <div className="literature-toolbar__search">
+          <div className="agent-model-chips" style={{ marginRight: 8 }}>
+            <button
+              type="button"
+              className={`model-chip ${searchSource === "local" ? "model-chip--active" : ""}`}
+              onClick={() => setSearchSource("local")}
+            >
+              {t(locale, "本地库", "Local")}
+            </button>
+            <button
+              type="button"
+              className={`model-chip ${searchSource === "zotero" ? "model-chip--active" : ""}`}
+              onClick={() => setSearchSource("zotero")}
+            >
+              Zotero
+            </button>
+          </div>
+          <div
+            className="literature-badge"
+            style={{
+              marginRight: 8,
+              borderColor: zoteroStatus?.available ? "rgba(22, 163, 74, 0.28)" : "rgba(185, 28, 28, 0.22)",
+              background: zoteroStatus?.available ? "rgba(22, 163, 74, 0.12)" : "rgba(239, 68, 68, 0.08)",
+              color: zoteroStatus?.available ? "#166534" : "#991b1b",
+            }}
+            title={zoteroStatus?.path || (zoteroStatus?.available ? "zotero-mcp detected" : "zotero-mcp not found")}
+          >
+            {zoteroStatus == null
+              ? t(locale, "Zotero 检测中…", "Checking Zotero…")
+              : zoteroStatus.available
+                ? t(locale, "Zotero 已连接", "Zotero Connected")
+                : t(locale, "Zotero 未安装", "Zotero Not Installed")}
+          </div>
           <input
             type="text"
             className="literature-search-input"
-            placeholder={t(locale, "搜索文献…", "Search literature…")}
+            placeholder={
+              searchSource === "zotero"
+                ? t(locale, "搜索 Zotero 文献库…", "Search Zotero library…")
+                : t(locale, "搜索文献…", "Search literature…")
+            }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void handleSearch()}
@@ -265,6 +357,18 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
         </div>
+        {searchSource === "zotero" && zoteroStatus && !zoteroStatus.available && (
+          <div
+            className="literature-empty__hint"
+            style={{ marginLeft: 12, maxWidth: 320 }}
+          >
+            {t(
+              locale,
+              "未检测到 `zotero-mcp`。先在本机安装并执行 `zotero-mcp setup`，然后重启应用。",
+              "No `zotero-mcp` detected. Install it locally, run `zotero-mcp setup`, then restart the app.",
+            )}
+          </div>
+        )}
 
         <div className="literature-toolbar__actions">
           <button
@@ -308,6 +412,19 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
           {isLoading && (
             <div className="literature-empty">
               {t(locale, "加载中…", "Loading…")}
+            </div>
+          )}
+
+          {tab === "search" && isSearching && (
+            <div className="literature-empty">
+              {t(locale, "搜索中…", "Searching…")}
+            </div>
+          )}
+
+          {tab === "search" && searchError && !isSearching && (
+            <div className="literature-empty">
+              <p>{t(locale, "搜索失败", "Search failed")}</p>
+              <p className="literature-empty__hint">{searchError}</p>
             </div>
           )}
 
@@ -401,7 +518,54 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
           {/* Search tab */}
           {tab === "search" &&
             !isLoading &&
-            (searchResults.length === 0 ? (
+            !isSearching &&
+            !searchError &&
+            (searchSource === "zotero" ? (
+              zoteroResults.length === 0 ? (
+                <div className="literature-empty">
+                  <p>
+                    {searchQuery
+                      ? t(locale, "Zotero 中未找到结果", "No Zotero results found")
+                      : t(locale, "输入关键词搜索 Zotero", "Enter keywords to search Zotero")}
+                  </p>
+                </div>
+              ) : (
+                zoteroResults.map((result) => (
+                  <button
+                    key={result.itemKey}
+                    className={`literature-card ${selectedZoteroKey === result.itemKey ? "is-selected" : ""}`}
+                    onClick={() => setSelectedZoteroKey(result.itemKey)}
+                  >
+                    <div className="literature-card__title">
+                      {result.title}
+                    </div>
+                    <div className="literature-card__meta">
+                      <span className="literature-badge">Zotero</span>
+                      {result.authors.length > 0 && (
+                        <span>{result.authors.slice(0, 2).join(", ")}</span>
+                      )}
+                      {result.year > 0 && <span>{result.year}</span>}
+                    </div>
+                    {result.snippet && (
+                      <div className="literature-card__snippet">
+                        {result.snippet}
+                      </div>
+                    )}
+                    <div className="literature-card__actions">
+                      <button
+                        className="literature-card__action-btn"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleImportZotero(result.itemKey, result.libraryId);
+                        }}
+                      >
+                        {t(locale, "导入到文献库", "Import")}
+                      </button>
+                    </div>
+                  </button>
+                ))
+              )
+            ) : searchResults.length === 0 ? (
               <div className="literature-empty">
                 <p>
                   {searchQuery
@@ -439,7 +603,83 @@ export function LiteratureManager({ locale, filterTaskId = null, onClearTaskFilt
 
         {/* Right: detail */}
         <div className="literature-detail">
-          {selectedItem ? (
+          {tab === "search" && searchSource === "zotero" && selectedZoteroResult ? (
+            <>
+              <h2 className="literature-detail__title">{selectedZoteroResult.title}</h2>
+              <div className="literature-detail__meta-grid">
+                {selectedZoteroResult.authors.length > 0 && (
+                  <div className="literature-detail__field">
+                    <label>{t(locale, "作者", "Authors")}</label>
+                    <span>{selectedZoteroResult.authors.join(", ")}</span>
+                  </div>
+                )}
+                {selectedZoteroResult.year > 0 && (
+                  <div className="literature-detail__field">
+                    <label>{t(locale, "年份", "Year")}</label>
+                    <span>{selectedZoteroResult.year}</span>
+                  </div>
+                )}
+                {selectedZoteroResult.journal && (
+                  <div className="literature-detail__field">
+                    <label>{t(locale, "期刊", "Journal")}</label>
+                    <span>{selectedZoteroResult.journal}</span>
+                  </div>
+                )}
+                {selectedZoteroResult.doi && (
+                  <div className="literature-detail__field">
+                    <label>DOI</label>
+                    <a
+                      href={`https://doi.org/${selectedZoteroResult.doi}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {selectedZoteroResult.doi}
+                    </a>
+                  </div>
+                )}
+                {selectedZoteroResult.itemType && (
+                  <div className="literature-detail__field">
+                    <label>{t(locale, "类型", "Type")}</label>
+                    <span>{selectedZoteroResult.itemType}</span>
+                  </div>
+                )}
+              </div>
+
+              {selectedZoteroResult.abstract && (
+                <div className="literature-detail__section">
+                  <h3>{t(locale, "摘要", "Abstract")}</h3>
+                  <p>{selectedZoteroResult.abstract}</p>
+                </div>
+              )}
+
+              {selectedZoteroResult.tags.length > 0 && (
+                <div className="literature-detail__section">
+                  <h3>{t(locale, "标签", "Tags")}</h3>
+                  <div className="literature-card__tags">
+                    {selectedZoteroResult.tags.map((tag) => (
+                      <span key={tag} className="literature-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="literature-detail__footer">
+                <button
+                  className="literature-detail__delete-btn"
+                  onClick={() =>
+                    void handleImportZotero(
+                      selectedZoteroResult.itemKey,
+                      selectedZoteroResult.libraryId,
+                    )
+                  }
+                >
+                  {t(locale, "导入到文献库", "Import into library")}
+                </button>
+              </div>
+            </>
+          ) : selectedItem ? (
             <>
               <h2 className="literature-detail__title">
                 {selectedItem.title}

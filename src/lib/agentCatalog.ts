@@ -1,4 +1,4 @@
-import type { ProviderConfig } from "../types";
+import type { ProviderConfig, ProviderMcpServerConfig } from "../types";
 
 export type AgentVendor = "claude-code" | "codex";
 export type AgentReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -236,6 +236,71 @@ export function writeAgentRuntimePreferences(
     delete meta.runtime;
   } else {
     meta.runtime = runtime;
+  }
+
+  return JSON.stringify(meta);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.values(value).every((entry) => typeof entry === "string");
+}
+
+export function normalizeProviderMcpServers(value: unknown): Record<string, ProviderMcpServerConfig> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const servers: Record<string, ProviderMcpServerConfig> = {};
+  for (const [name, rawConfig] of Object.entries(value)) {
+    if (!name.trim() || !rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+      continue;
+    }
+
+    const config = rawConfig as Record<string, unknown>;
+    const type = typeof config.type === "string" ? config.type : "stdio";
+    const command = typeof config.command === "string" ? config.command.trim() : "";
+    if (type !== "stdio" || !command) {
+      continue;
+    }
+
+    const args = Array.isArray(config.args)
+      ? config.args.filter((entry): entry is string => typeof entry === "string")
+      : undefined;
+    const env = isStringRecord(config.env) ? config.env : undefined;
+
+    servers[name] = {
+      type: "stdio",
+      command,
+      ...(args && args.length > 0 ? { args } : {}),
+      ...(env && Object.keys(env).length > 0 ? { env } : {}),
+    };
+  }
+
+  return servers;
+}
+
+export function readProviderMcpServers(
+  provider?: Pick<ProviderConfig, "metaJson"> | null,
+): Record<string, ProviderMcpServerConfig> {
+  const meta = parseProviderMetaJson(provider?.metaJson);
+  return normalizeProviderMcpServers(meta.mcpServers);
+}
+
+export function writeProviderMcpServers(
+  provider: Pick<ProviderConfig, "metaJson"> | null | undefined,
+  servers: Record<string, ProviderMcpServerConfig>,
+): string {
+  const meta = parseProviderMetaJson(provider?.metaJson);
+  const normalized = normalizeProviderMcpServers(servers);
+
+  if (Object.keys(normalized).length === 0) {
+    delete meta.mcpServers;
+  } else {
+    meta.mcpServers = normalized;
   }
 
   return JSON.stringify(meta);

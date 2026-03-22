@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 
 import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
-import { SkillArsenal } from "./SkillArsenal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
@@ -510,19 +509,8 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
         </>
       )}
 
-      {tab === "skills" && (
-        <>
-          <div className="sidebar-header">{isZh ? "技能军火库" : "Skill Arsenal"}</div>
-          <div className="sidebar-content sidebar-stack">
-            <SkillArsenal
-              skills={skills}
-              onToggleSkill={onToggleSkill}
-              onSkillsChanged={onSkillsChanged}
-            />
 
-          </div>
-        </>
-      )}
+
 
       {tab === "usage" && (
         <>

@@ -10,6 +10,7 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { emit } from "../utils/ndjson.mjs";
+import { buildEffectiveMcpServers } from "../utils/mcp-config.mjs";
 import {
   buildCliProcessEnv,
   requireCliExecutable,
@@ -33,7 +34,7 @@ function isSystemPromptContent(text) {
 /**
  * Build SDK options from the viwerleaf request payload.
  */
-function buildSdkOptions(request) {
+async function buildSdkOptions(request) {
   const options = {};
 
   // Working directory
@@ -68,6 +69,11 @@ function buildSdkOptions(request) {
 
   // Use the tools preset for full built-in tool set
   options.tools = { type: "preset", preset: "claude_code" };
+
+  const mcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers);
+  if (Object.keys(mcpServers).length > 0) {
+    options.mcpServers = mcpServers;
+  }
 
   // Auto-approve to avoid interactive prompts in headless mode
   options.allowDangerouslySkipPermissions = false;
@@ -104,7 +110,7 @@ function extractTokenBudget(usage) {
  * @param {object} request - The agent request payload from Rust
  */
 export async function runClaudeCode(request) {
-  const options = buildSdkOptions(request);
+  const options = await buildSdkOptions(request);
   options.pathToClaudeCodeExecutable = await requireCliExecutable("claude-code");
   options.env = buildCliProcessEnv(options.pathToClaudeCodeExecutable);
   const userMessage =

@@ -167,6 +167,13 @@ export interface ProviderConfig {
   authRef?: string;
 }
 
+export interface ProviderMcpServerConfig {
+  type?: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 export interface CliAgentStatus {
   name: string;
   available: boolean;
@@ -671,4 +678,19 @@ export interface LiteratureSearchResult {
   snippet: string;
   chunkIndex?: number;
   rank: number;
+}
+
+export interface ZoteroSearchResult {
+  itemKey: string;
+  title: string;
+  authors: string[];
+  year: number;
+  journal: string;
+  doi: string;
+  abstract: string;
+  tags: string[];
+  itemType: string;
+  libraryId: string;
+  zoteroVersion: number;
+  snippet: string;
 }

@@ -6111,6 +6111,560 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
   text-align: center; padding: 24px 12px; color: var(--text-secondary); font-size: 13px;
 }
 
+/* ─── Skill Arsenal Modal (iOS-style floating panel) ─────── */
+
+/* Overlay */
+.skill-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  animation: skill-overlay-in 0.28s ease both;
+}
+.skill-modal-overlay--exit {
+  animation: skill-overlay-out 0.22s ease both;
+}
+
+/* Panel */
+.skill-modal-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 90vw;
+  max-width: 700px;
+  max-height: 82vh;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.28) inset,
+    0 1px 3px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  animation: skill-panel-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  overflow: hidden;
+}
+.skill-modal-panel--exit {
+  animation: skill-panel-out 0.22s ease both;
+}
+
+/* Top bar */
+.skill-modal-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 10px;
+  flex-shrink: 0;
+}
+.skill-modal-title {
+  flex: 1;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: -0.01em;
+}
+.skill-modal-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  flex-shrink: 0;
+}
+.skill-modal-back:hover {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(1.08);
+}
+.skill-modal-back:active {
+  transform: scale(0.94);
+}
+.skill-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: #888;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  flex-shrink: 0;
+}
+.skill-modal-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+  color: #333;
+  transform: scale(1.08);
+}
+.skill-modal-close:active {
+  transform: scale(0.94);
+}
+
+/* Search row */
+.skill-modal-search-row {
+  padding: 0 20px 8px;
+  flex-shrink: 0;
+}
+.skill-modal-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.skill-modal-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #aaa;
+  pointer-events: none;
+}
+.skill-modal-search {
+  width: 100%;
+  padding: 10px 14px 10px 36px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 14px;
+  color: #1a1a2e;
+  outline: none;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.skill-modal-search::placeholder {
+  color: #b0b0b0;
+}
+.skill-modal-search:focus {
+  background: rgba(0, 0, 0, 0.07);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+/* Import row */
+.skill-modal-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 12px;
+  flex-shrink: 0;
+}
+.skill-modal-import-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  color: #1a1a2e;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.skill-modal-import-input:focus {
+  border-color: #6366f1;
+}
+.skill-modal-import-btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.skill-modal-import-btn:hover {
+  transform: scale(1.03);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+}
+.skill-modal-import-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+.skill-modal-import-error {
+  width: 100%;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+/* Body (scrollable) */
+.skill-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 20px 20px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Grid view: folders ── */
+.skill-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 580px) {
+  .skill-modal-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.skill-modal-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: none;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.22s;
+  animation: skill-folder-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.skill-modal-folder:hover {
+  transform: scale(1.04);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+}
+.skill-modal-folder:active {
+  transform: scale(0.97);
+}
+
+.skill-modal-folder__preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 68px;
+  height: 68px;
+}
+.skill-modal-folder__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.skill-modal-folder__icon svg {
+  width: 20px;
+  height: 20px;
+  image-rendering: pixelated;
+}
+
+.skill-modal-folder__info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.skill-modal-folder__name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3a3a5c;
+  line-height: 1.3;
+}
+.skill-modal-folder__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Folder expanded: skill list ── */
+.skill-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-modal-list--enter {
+  animation: skill-list-enter 0.3s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.skill-modal-app {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s, background 0.18s;
+  animation: skill-app-in 0.3s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+.skill-modal-app:hover {
+  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+.skill-modal-app:active {
+  transform: scale(0.98);
+}
+.skill-modal-app--active {
+  background: rgba(99, 102, 241, 0.06);
+  box-shadow: 0 0 0 1.5px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(99, 102, 241, 0.06);
+}
+
+.skill-modal-app__icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.skill-modal-app__icon svg {
+  image-rendering: pixelated;
+}
+
+.skill-modal-app__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.skill-modal-app__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+.skill-modal-app__desc {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill-modal-app__status {
+  flex-shrink: 0;
+}
+.skill-modal-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.skill-modal-dot--on {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+.skill-modal-dot--off {
+  background: #d4d4d8;
+}
+
+/* ── Detail view ── */
+.skill-modal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.skill-modal-detail--enter {
+  animation: skill-detail-enter 0.32s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.skill-modal-detail__hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.skill-modal-detail__icon {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.1);
+}
+.skill-modal-detail__icon svg {
+  image-rendering: pixelated;
+}
+.skill-modal-detail__hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.skill-modal-detail__hero-info h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+.skill-modal-detail__id {
+  font-size: 12px;
+  color: #a0a0b0;
+  font-family: var(--font-mono, monospace);
+}
+.skill-modal-detail__version {
+  font-size: 11px;
+  color: #6366f1;
+  font-weight: 600;
+}
+.skill-modal-detail__desc {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #555;
+  margin: 0;
+}
+.skill-modal-detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.skill-modal-detail__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  font-size: 11px;
+  font-weight: 600;
+}
+.skill-modal-detail__tag--soft {
+  background: rgba(0, 0, 0, 0.05);
+  color: #888;
+}
+.skill-modal-detail__section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #3a3a5c;
+}
+.skill-modal-detail__list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.7;
+}
+.skill-modal-detail__actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 6px;
+}
+.skill-modal-detail__btn {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s, background 0.15s;
+}
+.skill-modal-detail__btn:hover {
+  transform: scale(1.04);
+}
+.skill-modal-detail__btn:active {
+  transform: scale(0.96);
+}
+.skill-modal-detail__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+.skill-modal-detail__btn--primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+.skill-modal-detail__btn--primary:hover {
+  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4);
+}
+.skill-modal-detail__btn--secondary {
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+}
+.skill-modal-detail__btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+.skill-modal-detail__btn--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+.skill-modal-detail__btn--danger {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+.skill-modal-detail__btn--danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+/* Empty */
+.skill-modal-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #aaa;
+  font-size: 14px;
+}
+
+/* ── Keyframe animations ── */
+@keyframes skill-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes skill-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes skill-panel-in {
+  from { opacity: 0; transform: scale(0.88) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes skill-panel-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.92) translateY(12px); }
+}
+@keyframes skill-folder-in {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes skill-list-enter {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes skill-app-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes skill-detail-enter {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .surface-switcher {
   display: inline-flex;
   align-items: center;

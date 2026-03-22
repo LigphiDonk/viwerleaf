@@ -20,6 +20,7 @@ import type {
   LiteratureCandidate,
   LiteratureItem,
   LiteratureSearchResult,
+  ZoteroSearchResult,
   ProjectConfig,
   ProjectFile,
   ProfileConfig,
@@ -264,6 +265,16 @@ export const desktop = {
       mockRuntime.searchLiterature?.(query) ?? Promise.resolve([]),
     );
   },
+  searchZoteroLiterature(query: string) {
+    return runOrMock<ZoteroSearchResult[]>("search_zotero_literature", { query }, () =>
+      mockRuntime.searchZoteroLiterature?.(query) ?? Promise.resolve([]),
+    );
+  },
+  importZoteroLiterature(itemKey: string, libraryId?: string) {
+    return runOrMock<LiteratureItem>("import_zotero_literature", { itemKey, libraryId }, () =>
+      mockRuntime.importZoteroLiterature?.(itemKey, libraryId) ?? Promise.reject(new Error("Zotero import is unavailable")),
+    );
+  },
   linkLiteratureToTask(literatureId: string, taskId: string) {
     return runOrMock("link_literature_to_task", { literatureId, taskId }, () =>
       mockRuntime.linkLiteratureToTask?.(literatureId, taskId) ?? Promise.resolve(),
@@ -363,6 +374,11 @@ export const desktop = {
         { name: "claude-code", available: true, version: "mock" },
         { name: "codex", available: true, version: "mock" },
       ]),
+    );
+  },
+  detectZoteroMcp() {
+    return runOrMock<CliAgentStatus>("detect_zotero_mcp", {}, () =>
+      mockRuntime.detectZoteroMcp?.() ?? Promise.resolve({ name: "zotero-mcp", available: true, path: "/mock/bin/zotero-mcp" }),
     );
   },
   listProviders() {

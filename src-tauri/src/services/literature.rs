@@ -444,6 +444,50 @@ pub fn update_notes(conn: &Connection, id: &str, notes: &str) -> Result<(), Stri
     Ok(())
 }
 
+pub fn merge_source_metadata(
+    conn: &Connection,
+    id: &str,
+    journal: &str,
+    tags: &[String],
+    notes: &str,
+) -> Result<(), String> {
+    let item = get_item(conn, id)?;
+
+    let merged_journal = if item.journal.trim().is_empty() && !journal.trim().is_empty() {
+        journal.trim().to_string()
+    } else {
+        item.journal.clone()
+    };
+
+    let mut merged_tags = item.tags.clone();
+    for tag in tags {
+        let normalized = tag.trim();
+        if normalized.is_empty() || merged_tags.iter().any(|existing| existing == normalized) {
+            continue;
+        }
+        merged_tags.push(normalized.to_string());
+    }
+
+    let merged_notes = if item.notes.trim().is_empty() && !notes.trim().is_empty() {
+        notes.trim().to_string()
+    } else if !notes.trim().is_empty() && !item.notes.contains(notes.trim()) {
+        format!("{}\n\n{}", item.notes.trim(), notes.trim())
+            .trim()
+            .to_string()
+    } else {
+        item.notes.clone()
+    };
+
+    conn.execute(
+        "UPDATE literature_items SET journal=?1, tags_json=?2, notes=?3, updated_at=datetime('now') WHERE id=?4",
+        params![merged_journal, to_json_vec(&merged_tags), merged_notes, id],
+    )
+    .map_err(|err| err.to_string())?;
+    index_item(conn, id)?;
+
+    Ok(())
+}
+
 pub fn delete_item(conn: &Connection, id: &str) -> Result<(), String> {
     remove_search_index(conn, id)?;
     conn.execute("DELETE FROM literature_items WHERE id=?1", params![id])
@@ -820,6 +864,35 @@ pub fn update_attachment_ocr_status(
     conn.execute(
         "UPDATE literature_attachments SET ocr_status=?1 WHERE id=?2",
         params![status, attachment_id],
+    )
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
+pub fn upsert_sync_state(
+    conn: &Connection,
+    literature_id: &str,
+    zotero_library: &str,
+    zotero_key: &str,
+    zotero_version: i64,
+    sync_direction: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO literature_sync (literature_id, zotero_library, zotero_key, zotero_version, sync_direction, last_synced_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+         ON CONFLICT(literature_id) DO UPDATE SET
+           zotero_library=excluded.zotero_library,
+           zotero_key=excluded.zotero_key,
+           zotero_version=excluded.zotero_version,
+           sync_direction=excluded.sync_direction,
+           last_synced_at=datetime('now')",
+        params![
+            literature_id,
+            zotero_library,
+            zotero_key,
+            zotero_version,
+            sync_direction
+        ],
     )
     .map_err(|err| err.to_string())?;
     Ok(())

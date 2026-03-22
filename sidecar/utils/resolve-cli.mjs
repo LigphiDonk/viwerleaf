@@ -33,6 +33,47 @@ export async function detectCliStatus(name) {
   };
 }
 
+export async function detectCommandStatus(command, name = command) {
+  const path = await resolveExecutable(command);
+  return {
+    name,
+    available: Boolean(path),
+    path: path || undefined,
+  };
+}
+
+export async function resolveExecutable(command) {
+  const seen = new Set();
+  const candidates = [];
+
+  const currentPathMatch = await resolveOnCurrentPath(command);
+  if (currentPathMatch) {
+    candidates.push(currentPathMatch);
+  }
+
+  const loginShellMatch = await resolveFromLoginShell(command);
+  if (loginShellMatch) {
+    candidates.push(loginShellMatch);
+  }
+
+  candidates.push(...buildCommonCandidates(command));
+
+  for (const rawCandidate of candidates) {
+    const candidate = normalizeCandidate(rawCandidate);
+    if (!candidate || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+
+    const executablePath = resolveUsablePath(candidate);
+    if (executablePath) {
+      return executablePath;
+    }
+  }
+
+  return null;
+}
+
 export async function requireCliExecutable(name) {
   const resolved = await resolveCliExecutable(name);
   if (resolved.available && resolved.path) {
@@ -59,14 +100,9 @@ export async function resolveCliExecutable(name) {
     }
   }
 
-  const currentPathMatch = await resolveOnCurrentPath(config.command);
-  if (currentPathMatch) {
-    candidates.push(currentPathMatch);
-  }
-
-  const loginShellMatch = await resolveFromLoginShell(config.command);
-  if (loginShellMatch) {
-    candidates.push(loginShellMatch);
+  const resolvedCommand = await resolveExecutable(config.command);
+  if (resolvedCommand) {
+    candidates.push(resolvedCommand);
   }
 
   candidates.push(...buildCommonCandidates(config.command));

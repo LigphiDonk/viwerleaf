@@ -51,6 +51,12 @@ async function main() {
       process.stdout.write(JSON.stringify(result));
       break;
     }
+    case "detect-zotero-mcp": {
+      const { detectCommandStatus } = await import("./utils/resolve-cli.mjs");
+      const result = await detectCommandStatus("zotero-mcp", "zotero-mcp");
+      process.stdout.write(JSON.stringify(result));
+      break;
+    }
     case "figure-skill": {
       const payload = await parsePayload();
       await runFigureSkill(payload);
@@ -65,6 +71,20 @@ async function main() {
       const payload = await parsePayload();
       const { ingestLiteraturePdf } = await import("./utils/literature_ingest.mjs");
       const result = await ingestLiteraturePdf(payload);
+      process.stdout.write(JSON.stringify(result));
+      break;
+    }
+    case "search-zotero-literature": {
+      const payload = await parsePayload();
+      const { searchZoteroLiterature } = await import("./utils/zotero-mcp.mjs");
+      const result = await searchZoteroLiterature(payload);
+      process.stdout.write(JSON.stringify(result));
+      break;
+    }
+    case "import-zotero-literature": {
+      const payload = await parsePayload();
+      const { importZoteroLiterature } = await import("./utils/zotero-mcp.mjs");
+      const result = await importZoteroLiterature(payload);
       process.stdout.write(JSON.stringify(result));
       break;
     }

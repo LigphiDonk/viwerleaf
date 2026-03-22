@@ -120,6 +120,7 @@ pub fn run() {
             commands::import_skill_from_git,
             commands::remove_skill,
             commands::detect_cli_agents,
+            commands::detect_zotero_mcp,
             commands::create_workspace_dir,
             commands::read_file_binary,
             commands::save_file_binary,
@@ -134,8 +135,10 @@ pub fn run() {
             commands::approve_literature_candidate,
             commands::update_literature_notes,
             commands::search_literature,
+            commands::search_zotero_literature,
             commands::link_literature_to_task,
             commands::import_literature_pdf,
+            commands::import_zotero_literature,
             commands::ingest_literature,
             commands::export_paper_bank,
             commands::count_literature_for_task

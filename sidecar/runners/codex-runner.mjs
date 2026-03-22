@@ -10,6 +10,7 @@
 
 import { Codex } from "@openai/codex-sdk";
 import { emit } from "../utils/ndjson.mjs";
+import { buildCodexMcpConfig, buildEffectiveMcpServers } from "../utils/mcp-config.mjs";
 import {
   buildCliProcessEnv,
   requireCliExecutable,
@@ -136,6 +137,28 @@ function transformCodexEvent(event) {
           };
         }
 
+        case "mcp_tool_call": {
+          const toolId = `${item.server || "mcp"}.${item.tool || "tool"}`;
+          if (event.type === "item.started") {
+            return {
+              type: "tool_call_start",
+              toolId,
+              args: item.arguments ?? {},
+            };
+          }
+
+          const status = item.status === "failed" ? "error" : "completed";
+          const output = item.error
+            ? item.error.message || "mcp tool call failed"
+            : JSON.stringify(item.result?.structured_content ?? item.result ?? {}, null, 2);
+          return {
+            type: "tool_call_result",
+            toolId,
+            output,
+            status,
+          };
+        }
+
         case "error":
           return {
             type: "error",
@@ -227,9 +250,12 @@ export async function runCodex(request) {
 
   try {
     const codexPathOverride = await requireCliExecutable("codex");
+    const effectiveMcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers);
+    const config = buildCodexMcpConfig(effectiveMcpServers);
     const codex = new Codex({
       codexPathOverride,
       env: buildCliProcessEnv(codexPathOverride),
+      ...(config ? { config } : {}),
     });
 
     // Thread options

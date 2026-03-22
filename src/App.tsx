@@ -25,6 +25,7 @@ import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
 import { ResearchCanvas } from "./components/ResearchCanvas";
 import { LiteratureManager } from "./components/LiteratureManager";
 import { ShareLinkModal } from "./components/ShareLinkModal";
+import { SkillArsenalModal } from "./components/SkillArsenalModal";
 import { createLocalAdapter } from "./lib/adapters";
 import {
   createCloudProject,
@@ -551,6 +552,7 @@ function App() {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("project");
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
   const [terminalPanelHeight, setTerminalPanelHeight] = useState(TERMINAL_PANEL_DEFAULT_HEIGHT);
   const [terminalCommandRequest, setTerminalCommandRequest] = useState<{ id: number; command: string } | null>(null);
@@ -3759,8 +3761,8 @@ function App() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
             </button>
             <button
-              className={`activity-icon hover-spring ${isDrawerVisible && drawerTab === "skills" ? "is-active" : ""}`}
-              onClick={() => toggleDrawerTab("skills")}
+              className={`activity-icon hover-spring ${isSkillModalOpen ? "is-active" : ""}`}
+              onClick={() => setIsSkillModalOpen((c) => !c)}
               title={isZh ? "应用与技能" : "Apps & Skills"}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -4314,6 +4316,14 @@ function App() {
           onClose={handleDismissReleaseNotes}
         />
       )}
+
+      <SkillArsenalModal
+        open={isSkillModalOpen}
+        skills={snapshot?.skills ?? []}
+        onClose={() => setIsSkillModalOpen(false)}
+        onToggleSkill={handleToggleSkill}
+        onSkillsChanged={handleSkillsChanged}
+      />
     </div>
   );
 }

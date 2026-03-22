@@ -301,6 +301,20 @@ pub struct AgentProvider {
     pub permission_mode: String,
     #[serde(default)]
     pub reasoning_effort: String,
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, AgentMcpServerConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMcpServerConfig {
+    #[serde(default)]
+    pub r#type: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -691,4 +705,33 @@ pub struct LiteratureSearchResult {
     pub snippet: String,
     pub chunk_index: Option<i32>,
     pub rank: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoteroSearchResult {
+    #[serde(default)]
+    pub item_key: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub year: i32,
+    #[serde(default)]
+    pub journal: String,
+    #[serde(default)]
+    pub doi: String,
+    #[serde(default, rename = "abstract")]
+    pub abstract_text: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub item_type: String,
+    #[serde(default)]
+    pub library_id: String,
+    #[serde(default)]
+    pub zotero_version: i64,
+    #[serde(default)]
+    pub snippet: String,
 }

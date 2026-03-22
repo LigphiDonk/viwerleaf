@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::Path;
 
@@ -7,8 +8,8 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::models::{
-    AgentContext, AgentMessage, AgentProvider, AgentRequest, AgentRunResult, AgentSessionSummary,
-    AgentTaskContext, StreamChunk, UsageInfo,
+    AgentContext, AgentMcpServerConfig, AgentMessage, AgentProvider, AgentRequest, AgentRunResult,
+    AgentSessionSummary, AgentTaskContext, StreamChunk, UsageInfo,
 };
 use crate::services::{profile, provider, sidecar, skill};
 use crate::state::AppState;
@@ -20,6 +21,74 @@ fn read_provider_reasoning_effort(meta_json: &str) -> String {
         .and_then(|runtime| runtime.get("effort").cloned())
         .and_then(|effort| effort.as_str().map(str::to_owned))
         .unwrap_or_default()
+}
+
+fn read_provider_mcp_servers(meta_json: &str) -> HashMap<String, AgentMcpServerConfig> {
+    let mut servers = HashMap::new();
+    let Ok(meta) = serde_json::from_str::<serde_json::Value>(meta_json) else {
+        return servers;
+    };
+
+    let Some(raw_servers) = meta.get("mcpServers").and_then(|value| value.as_object()) else {
+        return servers;
+    };
+
+    for (name, raw_config) in raw_servers {
+        let Some(config) = raw_config.as_object() else {
+            continue;
+        };
+
+        let transport = config
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("stdio");
+        if transport != "stdio" {
+            continue;
+        }
+
+        let command = config
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .unwrap_or_default();
+        if command.is_empty() {
+            continue;
+        }
+
+        let args = config
+            .get("args")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let env = config
+            .get("env")
+            .and_then(|value| value.as_object())
+            .map(|vars| {
+                vars.iter()
+                    .filter_map(|(key, value)| {
+                        value.as_str().map(|item| (key.clone(), item.to_owned()))
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+
+        servers.insert(
+            name.clone(),
+            AgentMcpServerConfig {
+                r#type: "stdio".into(),
+                command: command.to_owned(),
+                args,
+                env,
+            },
+        );
+    }
+
+    servers
 }
 
 fn serialize_tool_args(args: &serde_json::Value) -> String {
@@ -131,6 +200,7 @@ pub fn run_agent(
             },
             permission_mode: String::from("acceptEdits"),
             reasoning_effort: read_provider_reasoning_effort(&prov.meta_json),
+            mcp_servers: read_provider_mcp_servers(&prov.meta_json),
         },
         system_prompt,
         user_message: user_message.clone(),

@@ -10,13 +10,73 @@ use crate::models::{
     ApplyResearchTaskSuggestionRequest, AssetResource, CliAgentStatus, FigureBriefDraft,
     GeneratedAsset, LiteratureCandidate, LiteratureItem, LiteratureSearchResult, ProfileConfig,
     ProjectConfig, ProjectFile, ProviderConfig, SkillManifest, TerminalSessionInfo, TestResult,
-    UsageRecord, WorkspaceSnapshot,
+    UsageRecord, WorkspaceSnapshot, ZoteroSearchResult,
 };
 use crate::services::{
     agent, compile, figure, literature, profile, project, provider, research, sidecar, skill, sync,
     terminal, worker,
 };
 use crate::state::AppState;
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ZoteroImportPayload {
+    item_key: String,
+    title: String,
+    #[serde(default)]
+    authors: Vec<String>,
+    #[serde(default)]
+    year: i32,
+    #[serde(default)]
+    journal: String,
+    #[serde(default)]
+    doi: String,
+    #[serde(default, rename = "abstract")]
+    abstract_text: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    library_id: String,
+    #[serde(default)]
+    zotero_version: i64,
+    #[serde(default)]
+    notes: Vec<String>,
+    #[serde(default)]
+    fulltext: String,
+}
+
+fn chunk_fulltext(text: &str, max_chars: usize) -> Vec<(i32, String)> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+
+    for paragraph in text.split("\n\n") {
+        let trimmed = paragraph.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let separator = if current.is_empty() { 0 } else { 2 };
+        if !current.is_empty()
+            && current.chars().count() + separator + trimmed.chars().count() > max_chars
+        {
+            chunks.push((index, current.trim().to_string()));
+            index += 1;
+            current.clear();
+        }
+
+        if !current.is_empty() {
+            current.push_str("\n\n");
+        }
+        current.push_str(trimmed);
+    }
+
+    if !current.trim().is_empty() {
+        chunks.push((index, current.trim().to_string()));
+    }
+
+    chunks
+}
 
 #[tauri::command]
 pub async fn open_project(app_handle: AppHandle) -> Result<WorkspaceSnapshot, String> {
@@ -754,6 +814,25 @@ pub async fn detect_cli_agents(app_handle: AppHandle) -> Result<Vec<CliAgentStat
 }
 
 #[tauri::command]
+pub async fn detect_zotero_mcp(app_handle: AppHandle) -> Result<CliAgentStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let output =
+            sidecar::run_sidecar(&state, "detect-zotero-mcp", "").map_err(|err| err.to_string())?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("failed to detect zotero-mcp: {stderr}"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        serde_json::from_str::<CliAgentStatus>(&stdout)
+            .map_err(|err| format!("failed to parse zotero-mcp status: {err}"))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn create_workspace_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|err| err.to_string())
 }
@@ -901,6 +980,132 @@ pub fn search_literature(
 ) -> Result<Vec<LiteratureSearchResult>, String> {
     let conn = state.db.lock().map_err(|err| err.to_string())?;
     literature::search(&conn, &query)
+}
+
+#[tauri::command]
+pub async fn search_zotero_literature(
+    app_handle: AppHandle,
+    query: String,
+) -> Result<Vec<ZoteroSearchResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let payload = serde_json::json!({
+            "query": query,
+            "limit": 12,
+        });
+
+        let output = sidecar::run_sidecar(&state, "search-zotero-literature", &payload.to_string())
+            .map_err(|err| format!("zotero search sidecar failed: {err}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("zotero search failed: {stderr}"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        serde_json::from_str::<Vec<ZoteroSearchResult>>(&stdout)
+            .map_err(|err| format!("invalid zotero search output: {err}"))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn import_zotero_literature(
+    app_handle: AppHandle,
+    item_key: String,
+    library_id: Option<String>,
+) -> Result<LiteratureItem, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let payload = serde_json::json!({
+            "itemKey": item_key,
+            "libraryId": library_id.unwrap_or_default(),
+        });
+
+        let output = sidecar::run_sidecar(&state, "import-zotero-literature", &payload.to_string())
+            .map_err(|err| format!("zotero import sidecar failed: {err}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("zotero import failed: {stderr}"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let imported: ZoteroImportPayload = serde_json::from_str(&stdout)
+            .map_err(|err| format!("invalid zotero import output: {err}"))?;
+
+        if imported.item_key.trim().is_empty() || imported.title.trim().is_empty() {
+            return Err("zotero import returned incomplete metadata".into());
+        }
+
+        let notes_text = imported
+            .notes
+            .iter()
+            .map(|note| note.trim())
+            .filter(|note| !note.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let candidate = LiteratureCandidate {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: imported.title.clone(),
+            authors: imported.authors.clone(),
+            year: imported.year,
+            doi: imported.doi.clone(),
+            abstract_text: imported.abstract_text.clone(),
+            source_context: format!("Zotero MCP: {}", imported.item_key),
+            pdf_path: String::new(),
+            dedup_status: String::new(),
+            matched_item_id: String::new(),
+            created_at: String::new(),
+        };
+
+        let conn = state.db.lock().map_err(|err| err.to_string())?;
+        literature::add_to_inbox(&conn, &candidate)?;
+        let item = literature::approve_candidate(&conn, &candidate.id)?;
+
+        literature::merge_source_metadata(
+            &conn,
+            &item.id,
+            &imported.journal,
+            &imported.tags,
+            &notes_text,
+        )?;
+        literature::upsert_sync_state(
+            &conn,
+            &item.id,
+            if imported.library_id.trim().is_empty() {
+                "local"
+            } else {
+                imported.library_id.trim()
+            },
+            &imported.item_key,
+            imported.zotero_version,
+            "pull",
+        )?;
+
+        if !imported.fulltext.trim().is_empty() {
+            let attachment_path = format!("zotero://{}/fulltext", imported.item_key);
+            literature::upsert_attachment(
+                &conn,
+                &item.id,
+                "fulltext",
+                &attachment_path,
+                "zotero",
+                "none",
+            )?;
+            let chunks = chunk_fulltext(&imported.fulltext, 1800);
+            literature::save_chunks(&conn, &item.id, &chunks)?;
+        }
+
+        literature::list_items(&conn)?
+            .into_iter()
+            .find(|entry| entry.id == item.id)
+            .ok_or_else(|| "imported item not found after save".to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

@@ -19,6 +19,7 @@ import type {
   LiteratureCandidate,
   LiteratureItem,
   LiteratureSearchResult,
+  ZoteroSearchResult,
   ProjectConfig,
   ProjectFile,
   ProjectNode,
@@ -1218,6 +1219,69 @@ export const mockRuntime = {
     return buildMockSearchResults(query);
   },
 
+  async searchZoteroLiterature(query: string) {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return [] satisfies ZoteroSearchResult[];
+    }
+
+    return [
+      {
+        itemKey: "ZOTERO-DEMO-1",
+        title: `Zotero result for ${trimmed}`,
+        authors: ["Ada Lovelace", "Grace Hopper"],
+        year: 2024,
+        journal: "Journal of ViewerLeaf Studies",
+        doi: "10.1000/viewerleaf.zotero.demo",
+        abstract: `This mock Zotero paper discusses ${trimmed} in the context of local-first academic tooling.`,
+        tags: ["zotero", trimmed],
+        itemType: "journalArticle",
+        libraryId: "local",
+        zoteroVersion: 1,
+        snippet: `Semantic match from Zotero MCP for ${trimmed}.`,
+      },
+    ];
+  },
+
+  async importZoteroLiterature(itemKey: string, _libraryId?: string) {
+    const existing = literatureItems.find((item) => item.doi === "10.1000/viewerleaf.zotero.demo");
+    if (existing) {
+      return structuredClone(existing);
+    }
+
+    const item = buildLiteratureItem({
+      id: crypto.randomUUID(),
+      title: `Imported from Zotero (${itemKey})`,
+      authors: ["Ada Lovelace", "Grace Hopper"],
+      year: 2024,
+      journal: "Journal of ViewerLeaf Studies",
+      doi: "10.1000/viewerleaf.zotero.demo",
+      abstract: "Imported from Zotero MCP in mock runtime.",
+      tags: ["zotero"],
+      notes: "Imported from Zotero MCP.",
+      dedupHash: "",
+      linkedTaskIds: [],
+      addedAt: "",
+      updatedAt: "",
+    });
+    literatureItems.unshift(item);
+    literatureAttachments.push({
+      id: crypto.randomUUID(),
+      literatureId: item.id,
+      kind: "fulltext",
+      filePath: `zotero://${itemKey}/fulltext`,
+      ocrStatus: "none",
+      source: "zotero",
+      createdAt: new Date().toISOString(),
+    });
+    literatureChunks.push({
+      literatureId: item.id,
+      chunkIndex: 0,
+      content: `Imported full text for ${item.title}`,
+    });
+    return structuredClone(item);
+  },
+
   async linkLiteratureToTask(literatureId: string, taskId: string) {
     const item = literatureItems.find((entry) => entry.id === literatureId);
     if (item && !item.linkedTaskIds.includes(taskId)) {
@@ -1616,6 +1680,15 @@ export const mockRuntime = {
 
   async listProviders() {
     return structuredClone(providers);
+  },
+
+  async detectZoteroMcp() {
+    return {
+      name: "zotero-mcp",
+      available: true,
+      path: "/mock/bin/zotero-mcp",
+      version: "mock",
+    };
   },
 
   async addProvider(provider: ProviderConfig) {
