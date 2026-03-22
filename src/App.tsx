@@ -80,6 +80,7 @@ import {
 import { resolvePdfSource } from "./lib/pdf-source";
 import { findActiveHeading } from "./lib/outline";
 import { localizeResearchSnapshot } from "./lib/researchLocale";
+import { defaultResearchSelection } from "./lib/researchCanvasGraph";
 import {
   closePathTab,
   closeTextTab,
@@ -109,6 +110,7 @@ import type {
   ProviderConfig,
   ResearchStage,
   ResearchTaskDraft,
+  ResearchTaskPlanOperation,
   ResearchTask,
   ReviewComment,
   SkillManifest,
@@ -133,6 +135,58 @@ type CollabBusyAction =
   | "unlink-project"
   | "sync-project"
   | "pull-project";
+
+function resolveAddedTaskSelection(
+  research: NonNullable<WorkspaceSnapshot["research"]>,
+  draft: ResearchTaskDraft,
+): string {
+  const normalizedTitle = draft.title.trim();
+  const normalizedDescription = draft.description?.trim() ?? "";
+  const directMatch = draft.id
+    ? research.tasks.find((task) => task.id === draft.id)
+    : undefined;
+  if (directMatch) {
+    return `task:${directMatch.id}`;
+  }
+
+  const matchingTask = [...research.tasks].reverse().find((task) =>
+    task.stage === draft.stage &&
+    task.title.trim() === normalizedTitle &&
+    (!normalizedDescription || task.description.trim() === normalizedDescription),
+  );
+  return matchingTask ? `task:${matchingTask.id}` : `stage:${draft.stage}`;
+}
+
+function resolveSelectionAfterTaskOperations(
+  research: NonNullable<WorkspaceSnapshot["research"]>,
+  operations: ResearchTaskPlanOperation[],
+): string {
+  const addOperation = operations.find((operation): operation is Extract<ResearchTaskPlanOperation, { type: "add" }> =>
+    operation.type === "add");
+  if (addOperation) {
+    return resolveAddedTaskSelection(research, addOperation.task);
+  }
+
+  if (research.nextTask?.id) {
+    return `task:${research.nextTask.id}`;
+  }
+
+  const updateOperation = operations.find((operation): operation is Extract<ResearchTaskPlanOperation, { type: "update" }> =>
+    operation.type === "update" && research.tasks.some((task) => task.id === operation.taskId));
+  if (updateOperation) {
+    return `task:${updateOperation.taskId}`;
+  }
+
+  return defaultResearchSelection(research);
+}
+
+function pathAffectsResearchSnapshot(path: string): boolean {
+  return path === ".pipeline/tasks/tasks.json"
+    || path === ".pipeline/docs/research_brief.json"
+    || path.startsWith(".viewerleaf/research/")
+    || path.startsWith(".pipeline/docs/")
+    || path === "instance.json";
+}
 type CollabNotice = {
   tone: "success" | "error";
   text: string;
@@ -626,6 +680,10 @@ function App() {
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
   const [workspaceSurface, setWorkspaceSurface] = useState<WorkspaceSurface>("research");
   const [activeResearchTaskId, setActiveResearchTaskId] = useState<string | null>(null);
+  const [researchSelectionRequest, setResearchSelectionRequest] = useState<{ id: string | null; nonce: number }>({
+    id: null,
+    nonce: 0,
+  });
   const [literatureTaskFilterId, setLiteratureTaskFilterId] = useState<string | null>(null);
   const [taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
   const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
@@ -1318,6 +1376,24 @@ function App() {
     setDrawerTab(tab);
     setIsDrawerVisible(true);
   });
+  const requestResearchSelection = useEffectEvent((id: string | null) => {
+    setResearchSelectionRequest((current) => ({
+      id,
+      nonce: current.nonce + 1,
+    }));
+  });
+  const refreshResearchSnapshotIfNeeded = useEffectEvent(async (paths: string[]) => {
+    if (!snapshot?.research || !paths.some(pathAffectsResearchSnapshot)) {
+      return;
+    }
+    await refreshWorkspace({
+      activeFilePath,
+      openTabs,
+      openImageTabs,
+      editorImagePath,
+      previewSelection,
+    });
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1651,11 +1727,13 @@ function App() {
 
     if (snapshot.projectConfig.autoCompile) {
       await saveOpenFiles(dirtyPaths);
+      await refreshResearchSnapshotIfNeeded(dirtyPaths);
       await executeCompile(activeFile.path);
       return;
     }
 
     await saveOpenFiles([activeFile.path]);
+    await refreshResearchSnapshotIfNeeded([activeFile.path]);
   });
 
   const handleSaveAllFiles = useEffectEvent(async () => {
@@ -1664,6 +1742,7 @@ function App() {
     }
 
     await saveOpenFiles(dirtyPaths);
+    await refreshResearchSnapshotIfNeeded(dirtyPaths);
 
     if (snapshot.projectConfig.autoCompile && snapshot.compileResult.status !== "running") {
       await executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
@@ -1676,6 +1755,7 @@ function App() {
     }
 
     await saveOpenFiles(dirtyPaths);
+    await refreshResearchSnapshotIfNeeded(dirtyPaths);
     setPreviewSelection({ kind: "compile" });
     openPreviewPane();
     await executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
@@ -1930,7 +2010,8 @@ function App() {
     }
 
     const timer = window.setTimeout(() => {
-      void saveOpenFiles(dirtyPaths).then(() => {
+      void saveOpenFiles(dirtyPaths).then(async () => {
+        await refreshResearchSnapshotIfNeeded(dirtyPaths);
         if (snapshot.projectConfig.autoCompile) {
           void executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
         }
@@ -1938,7 +2019,7 @@ function App() {
     }, 900);
 
     return () => window.clearTimeout(timer);
-  }, [activeFilePath, dirtyPaths, executeCompile, isAutoSaveEnabled, saveOpenFiles, snapshot]);
+  }, [activeFilePath, dirtyPaths, executeCompile, isAutoSaveEnabled, refreshResearchSnapshotIfNeeded, saveOpenFiles, snapshot]);
 
   useEffect(() => {
     function handleError(event: ErrorEvent) {
@@ -2018,6 +2099,7 @@ function App() {
     const patchFilePath = pendingPatch?.filePath;
     await applyPatchBase();
     if (patchFilePath) {
+      await refreshResearchSnapshotIfNeeded([patchFilePath]);
       setDirtyPaths((current) => current.filter((path) => path !== patchFilePath));
     }
   });
@@ -2050,6 +2132,9 @@ function App() {
         editorImagePath,
         previewSelection,
       });
+      if (nextSnapshot.research) {
+        requestResearchSelection(defaultResearchSelection(nextSnapshot.research));
+      }
       setWorkspaceSurface("research");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2074,6 +2159,9 @@ function App() {
         editorImagePath,
         previewSelection,
       });
+      if (nextSnapshot.research) {
+        requestResearchSelection(defaultResearchSelection(nextSnapshot.research));
+      }
       setWorkspaceSurface("research");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2184,6 +2272,9 @@ function App() {
         editorImagePath,
         previewSelection,
       });
+      if (nextSnapshot.research) {
+        requestResearchSelection(resolveSelectionAfterTaskOperations(nextSnapshot.research, suggestion.operations));
+      }
       setRuntimeNotice(null);
       setWorkspaceSurface("research");
     } catch (error) {
@@ -2194,9 +2285,10 @@ function App() {
 
   const handleAddResearchTask = useEffectEvent(async (draft: ResearchTaskDraft) => {
     try {
+      const operations: ResearchTaskPlanOperation[] = [{ type: "add", task: draft }];
       const nextSnapshot = await loadSnapshotWithCollab(() =>
         desktop.applyResearchTaskSuggestion({
-          operations: [{ type: "add", task: draft }],
+          operations,
           workingMemory: null,
         }),
       );
@@ -2207,7 +2299,11 @@ function App() {
         editorImagePath,
         previewSelection,
       });
+      if (nextSnapshot.research) {
+        requestResearchSelection(resolveSelectionAfterTaskOperations(nextSnapshot.research, operations));
+      }
       setRuntimeNotice(null);
+      setWorkspaceSurface("research");
     } catch (error) {
       reportRuntimeIssue(error, isZh ? "新增研究任务失败" : "Failed to add research task");
     }
@@ -4171,6 +4267,8 @@ function App() {
                   locale={locale}
                   research={researchSnapshot}
                   activeTaskId={activeResearchTaskId}
+                  requestedSelectionId={researchSelectionRequest.id}
+                  requestedSelectionNonce={researchSelectionRequest.nonce}
                   isBusy={isResearchBootstrapBusy}
                   onBootstrap={handleEnsureResearchScaffold}
                   onInitializeStage={handleInitializeResearchStage}

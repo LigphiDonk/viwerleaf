@@ -33,6 +33,8 @@ interface ResearchCanvasProps {
   locale: AppLocale;
   research: ResearchCanvasSnapshot | null | undefined;
   activeTaskId?: string | null;
+  requestedSelectionId?: string | null;
+  requestedSelectionNonce?: number;
   isBusy?: boolean;
   onBootstrap: () => Promise<void> | void;
   onInitializeStage: (stage: ResearchStage) => Promise<void> | void;
@@ -714,6 +716,8 @@ export function ResearchCanvas({
   locale,
   research,
   activeTaskId = null,
+  requestedSelectionId = null,
+  requestedSelectionNonce = 0,
   isBusy = false,
   onBootstrap,
   onInitializeStage,
@@ -869,6 +873,16 @@ export function ResearchCanvas({
       window.cancelAnimationFrame(frame);
     };
   }, [enrichedNodes, layoutSignature, localizedResearch, setNodes, visibleNodeIds]);
+
+  useEffect(() => {
+    if (!localizedResearch || requestedSelectionNonce === 0) {
+      return;
+    }
+    const nextSelection = requestedSelectionId
+      ? resolveFallbackSelection(localizedResearch, requestedSelectionId, visibleNodeIds)
+      : defaultResearchSelection(localizedResearch);
+    setSelectionId(nextSelection);
+  }, [localizedResearch, requestedSelectionId, requestedSelectionNonce, visibleNodeIds]);
 
   if (needsBootstrap) {
     return <ResearchOnboarding locale={locale} research={localizedResearch} isBusy={isBusy} onBootstrap={onBootstrap} />;

@@ -1682,7 +1682,7 @@ export function ChatPanel({
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      setDismissedSuggestionKeys([]);
+      setDismissedSuggestionKeys(Array.from(_appliedSuggestionKeys));
     });
     return () => {
       window.cancelAnimationFrame(frame);
