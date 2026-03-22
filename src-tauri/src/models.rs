@@ -603,9 +603,13 @@ pub enum ResearchTaskPlanOperation {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyResearchTaskSuggestionRequest {
+    #[serde(default)]
     pub task_id: Option<String>,
+    #[serde(default)]
     pub changes: Option<ResearchTaskUpdateChanges>,
+    #[serde(default)]
     pub operations: Option<Vec<ResearchTaskPlanOperation>>,
+    #[serde(default)]
     pub working_memory: Option<String>,
 }
 
@@ -734,4 +738,48 @@ pub struct ZoteroSearchResult {
     pub zotero_version: i64,
     #[serde(default)]
     pub snippet: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApplyResearchTaskSuggestionRequest, ResearchTaskPlanOperation};
+
+    #[test]
+    fn apply_task_suggestion_request_accepts_operation_only_payloads() {
+        let payload = serde_json::json!({
+            "taskId": null,
+            "changes": null,
+            "operations": [
+                {
+                    "type": "add",
+                    "task": {
+                        "title": "Screen seed papers",
+                        "stage": "survey"
+                    },
+                    "afterTaskId": null
+                }
+            ],
+            "workingMemory": null
+        });
+
+        let request: ApplyResearchTaskSuggestionRequest =
+            serde_json::from_value(payload).expect("request should deserialize");
+
+        assert!(request.task_id.is_none());
+        assert!(request.changes.is_none());
+        assert!(request.working_memory.is_none());
+        let operations = request.operations.expect("operations should be present");
+        assert_eq!(operations.len(), 1);
+        match &operations[0] {
+            ResearchTaskPlanOperation::Add {
+                task,
+                after_task_id,
+            } => {
+                assert_eq!(task.title, "Screen seed papers");
+                assert_eq!(task.stage, "survey");
+                assert!(after_task_id.is_none());
+            }
+            other => panic!("expected add operation, got {other:?}"),
+        }
+    }
 }

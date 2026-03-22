@@ -26,6 +26,7 @@ import { ResearchCanvas } from "./components/ResearchCanvas";
 import { LiteratureManager } from "./components/LiteratureManager";
 import { ShareLinkModal } from "./components/ShareLinkModal";
 import { SkillArsenalModal } from "./components/SkillArsenalModal";
+import { PaneErrorBoundary } from "./components/PaneErrorBoundary";
 import { createLocalAdapter } from "./lib/adapters";
 import {
   createCloudProject,
@@ -186,6 +187,7 @@ const RECENT_WORKSPACE_STORAGE_KEY = "viewerleaf:recent-workspaces:v1";
 const WINDOW_WORKSPACE_TABS_STORAGE_KEY = "viewerleaf:window-workspaces:v1";
 const AUTO_SAVE_STORAGE_KEY = "viewerleaf:auto-save:v1";
 const APP_LOCALE_STORAGE_KEY = "viewerleaf:locale:v1";
+const DRAWER_WIDTH_STORAGE_KEY = "viewerleaf:drawer-width:v1";
 const RELEASE_NOTES_VERSION_STORAGE_KEY = "viewerleaf:release-notes:last-seen-version:v1";
 const GITHUB_RELEASE_TAG_ENDPOINT = "https://api.github.com/repos/LigphiDonk/viwerleaf/releases/tags";
 const MAX_RECENT_WORKSPACES = 10;
@@ -193,6 +195,9 @@ const MAX_OPEN_WORKSPACES = 6;
 const TERMINAL_PANEL_MIN_HEIGHT = 170;
 const TERMINAL_PANEL_MAX_HEIGHT = 440;
 const TERMINAL_PANEL_DEFAULT_HEIGHT = 230;
+const DRAWER_DEFAULT_WIDTH = 336;
+const DRAWER_MIN_WIDTH = 280;
+const DRAWER_MAX_WIDTH = 620;
 
 function workspaceLabelFromRoot(rootPath: string) {
   const normalized = normalizeProjectPath(rootPath).replace(/\/$/, "");
@@ -387,6 +392,48 @@ function writeStoredBoolean(key: string, value: boolean) {
   window.localStorage.setItem(key, value ? "true" : "false");
 }
 
+function readStoredNumber(key: string, fallback: number) {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function writeStoredNumber(key: string, value: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(key, String(value));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function stringifyRuntimeIssue(error: unknown) {
+  if (error instanceof Error) {
+    return error.stack || error.message || String(error);
+  }
+  return String(error);
+}
+
+function summarizeRuntimeIssue(error: unknown, fallback = "Unknown error") {
+  const raw = stringifyRuntimeIssue(error).trim();
+  if (!raw) {
+    return fallback;
+  }
+  const firstLine = raw.split("\n").find((line) => line.trim())?.trim() || raw;
+  return firstLine.length > 220 ? `${firstLine.slice(0, 220)}…` : firstLine;
+}
+
 function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
   if (!listener) {
     return;
@@ -551,6 +598,9 @@ function App() {
   );
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("project");
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState(() =>
+    clampNumber(readStoredNumber(DRAWER_WIDTH_STORAGE_KEY, DRAWER_DEFAULT_WIDTH), DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH),
+  );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
@@ -575,6 +625,7 @@ function App() {
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
   const [collabRevision, setCollabRevision] = useState(0);
   const [runtimeDebugLogLines, setRuntimeDebugLogLines] = useState<string[]>([]);
+  const [runtimeNotice, setRuntimeNotice] = useState<{ tone: "error"; text: string } | null>(null);
   const [collabDebugLogLines, setCollabDebugLogLines] = useState<string[]>([]);
   const [editorMode, setEditorMode] = useState<"code" | "visual">("code");
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null);
@@ -651,6 +702,23 @@ function App() {
   const [authorizedCollabProjectId, setAuthorizedCollabProjectId] = useState<string | null>(null);
   const [authorizedCollabProjectRole, setAuthorizedCollabProjectRole] = useState<CloudProjectRole | null>(null);
   const [releaseNotesModal, setReleaseNotesModal] = useState<ReleaseNotesModalState | null>(null);
+
+  const appendRuntimeLog = useEffectEvent((kind: "error" | "promise", message: string) => {
+    const line = `[${formatDebugTimestamp(new Date())}] [${kind.toUpperCase()}] ${message}`;
+    setRuntimeDebugLogLines((current) => {
+      const next = [...current, line];
+      return next.length > 120 ? next.slice(next.length - 120) : next;
+    });
+  });
+
+  const reportRuntimeIssue = useEffectEvent((error: unknown, fallback?: string) => {
+    const detail = stringifyRuntimeIssue(error);
+    appendRuntimeLog("error", detail);
+    setRuntimeNotice({
+      tone: "error",
+      text: summarizeRuntimeIssue(error, fallback),
+    });
+  });
 
   const collabAuthSession = useMemo(
     () => readCollabAuthSession(),
@@ -1250,6 +1318,10 @@ function App() {
   }, [locale]);
 
   useEffect(() => {
+    writeStoredNumber(DRAWER_WIDTH_STORAGE_KEY, drawerWidth);
+  }, [drawerWidth]);
+
+  useEffect(() => {
     if (!isSettingsOpen) {
       return;
     }
@@ -1715,6 +1787,38 @@ function App() {
     window.addEventListener("mouseup", handlePointerUp);
   });
 
+  const handleDrawerResizeStart = useEffectEvent((event: ReactMouseEvent<HTMLDivElement>) => {
+    const container = workspaceBodyRef.current?.parentElement;
+    if (!container) {
+      return;
+    }
+
+    event.preventDefault();
+    const bounds = container.getBoundingClientRect();
+    const activityBarWidth = activityBarShellRef.current?.getBoundingClientRect().width ?? 0;
+    const maxWidth = Math.min(DRAWER_MAX_WIDTH, Math.max(DRAWER_MIN_WIDTH, bounds.width - activityBarWidth - 360));
+
+    const updateWidth = (clientX: number) => {
+      const nextWidth = clientX - bounds.left - activityBarWidth;
+      setDrawerWidth(clampNumber(nextWidth, DRAWER_MIN_WIDTH, maxWidth));
+    };
+
+    updateWidth(event.clientX);
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      updateWidth(moveEvent.clientX);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
+  });
+
   const handleTerminalResizeStart = useEffectEvent((event: ReactMouseEvent<HTMLDivElement>) => {
     const workspaceBody = workspaceBodyRef.current;
     if (!workspaceBody) {
@@ -1809,23 +1913,24 @@ function App() {
   }, [activeFilePath, dirtyPaths, executeCompile, isAutoSaveEnabled, saveOpenFiles, snapshot]);
 
   useEffect(() => {
-    function appendRuntimeLog(kind: "error" | "promise", message: string) {
-      const line = `[${formatDebugTimestamp(new Date())}] [${kind.toUpperCase()}] ${message}`;
-      setRuntimeDebugLogLines((current) => {
-        const next = [...current, line];
-        return next.length > 120 ? next.slice(next.length - 120) : next;
-      });
-    }
-
     function handleError(event: ErrorEvent) {
-      appendRuntimeLog("error", event.error?.stack || event.message || "Unknown window error");
+      const detail = event.error?.stack || event.message || "Unknown window error";
+      appendRuntimeLog("error", detail);
+      setRuntimeNotice({
+        tone: "error",
+        text: summarizeRuntimeIssue(event.error ?? event.message, "Unexpected window error"),
+      });
+      event.preventDefault();
     }
 
     function handleUnhandledRejection(event: PromiseRejectionEvent) {
-      const reason = event.reason instanceof Error
-        ? event.reason.stack || event.reason.message
-        : String(event.reason);
+      const reason = stringifyRuntimeIssue(event.reason);
       appendRuntimeLog("promise", reason);
+      setRuntimeNotice({
+        tone: "error",
+        text: summarizeRuntimeIssue(event.reason, "Unhandled promise rejection"),
+      });
+      event.preventDefault();
     }
 
     window.addEventListener("error", handleError);
@@ -1834,7 +1939,7 @@ function App() {
       window.removeEventListener("error", handleError);
       window.removeEventListener("unhandledrejection", handleUnhandledRejection);
     };
-  }, []);
+  }, [appendRuntimeLog]);
 
   const handleEditorSave = useEffectEvent(() => {
     void handleSaveCurrentFile();
@@ -2027,36 +2132,50 @@ function App() {
   });
 
   const handleApplyResearchTaskSuggestion = useEffectEvent(async (suggestion: TaskUpdateSuggestion) => {
-    const nextSnapshot = await loadSnapshotWithCollab(() =>
-      desktop.applyResearchTaskSuggestion({
-        taskId: suggestion.taskId,
-        changes: suggestion.changes,
-        operations: suggestion.operations,
-        workingMemory: suggestion.workingMemory,
-      }),
-    );
-    applySnapshot(nextSnapshot, {
-      activeFilePath,
-      openTabs,
-      openImageTabs,
-      editorImagePath,
-      previewSelection,
-    });
+    try {
+      const nextSnapshot = await loadSnapshotWithCollab(() =>
+        desktop.applyResearchTaskSuggestion({
+          taskId: suggestion.taskId ?? null,
+          changes: suggestion.changes ?? null,
+          operations: suggestion.operations ?? null,
+          workingMemory: suggestion.workingMemory ?? null,
+        }),
+      );
+      applySnapshot(nextSnapshot, {
+        activeFilePath,
+        openTabs,
+        openImageTabs,
+        editorImagePath,
+        previewSelection,
+      });
+      setRuntimeNotice(null);
+    } catch (error) {
+      reportRuntimeIssue(error, isZh ? "应用任务建议失败" : "Failed to apply task suggestion");
+      throw error;
+    }
   });
 
   const handleAddResearchTask = useEffectEvent(async (draft: ResearchTaskDraft) => {
-    const nextSnapshot = await loadSnapshotWithCollab(() =>
-      desktop.applyResearchTaskSuggestion({
-        operations: [{ type: "add", task: draft }],
-      }),
-    );
-    applySnapshot(nextSnapshot, {
-      activeFilePath,
-      openTabs,
-      openImageTabs,
-      editorImagePath,
-      previewSelection,
-    });
+    try {
+      const nextSnapshot = await loadSnapshotWithCollab(() =>
+        desktop.applyResearchTaskSuggestion({
+          taskId: null,
+          changes: null,
+          operations: [{ type: "add", task: draft }],
+          workingMemory: null,
+        }),
+      );
+      applySnapshot(nextSnapshot, {
+        activeFilePath,
+        openTabs,
+        openImageTabs,
+        editorImagePath,
+        previewSelection,
+      });
+      setRuntimeNotice(null);
+    } catch (error) {
+      reportRuntimeIssue(error, isZh ? "新增研究任务失败" : "Failed to add research task");
+    }
   });
 
   function handleOpenNode(node: ProjectNode) {
@@ -3714,6 +3833,27 @@ function App() {
         )}
       </header>
 
+      {runtimeNotice && (
+        <div className="runtime-notice-bar" role="alert">
+          <div className={`runtime-notice runtime-notice--${runtimeNotice.tone}`}>
+            <div className="runtime-notice__copy">
+              <strong>{isZh ? "运行时错误" : "Runtime Error"}</strong>
+              <span>{runtimeNotice.text}</span>
+            </div>
+            <button
+              type="button"
+              className="runtime-notice__dismiss"
+              onClick={() => setRuntimeNotice(null)}
+              aria-label={isZh ? "关闭错误提示" : "Dismiss error notice"}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="workspace-container">
           <div className="activity-bar-shell" ref={activityBarShellRef}>
           <div className="activity-bar">
@@ -3847,127 +3987,148 @@ function App() {
           )}
           </div>
 
-          {isDrawerVisible && (drawerTab === "project" ? (
-            <ProjectSidebar
-              locale={locale}
-              projectName={workspaceLabelFromRoot(snapshot.projectConfig.rootPath) || (isZh ? "未命名项目" : "Untitled Project")}
-              mode={workspacePaneMode}
-              nodes={snapshot.tree}
-              activeFile={focusedTreePath}
-              dirtyPaths={dirtyPathSet}
-              collabSyncStates={collabWorkspaceSyncSummary.byPath}
-              outlineContent={outlineNode}
-              onModeChange={setWorkspacePaneMode}
-              onOpenNode={handleOpenNode}
-              onCreateFile={handleCreateFile}
-              onCreateFolder={handleCreateFolder}
-              onDeleteFile={handleDeleteFile}
-              onRenameFile={handleRenameFile}
-              onRequestCreateFile={() => void handleQuickCreateFile()}
-              onRequestCreateFolder={() => void handleQuickCreateFolder()}
-            />
-          ) : drawerTab === "sync" ? (
-            <SyncSidebar
-              locale={locale}
-              projectId={snapshot.collab?.cloudProjectId ?? null}
-              workspaceLabel={workspaceLabelFromRoot(snapshot.projectConfig.rootPath)}
-              linkedAt={snapshot.collab?.linkedAt ?? ""}
-              notice={collabNotice}
-              lastSyncAt={lastManualCollabSyncAt}
-              role={currentCollabStatus.role}
-              collabStatus={currentCollabStatus}
-              busyAction={collabBusyAction}
-              changes={syncChangeEntries}
-              ignoredPaths={ignoredSyncPaths}
-              onIgnorePath={handleIgnoreSyncPath}
-              onUnignorePath={handleUnignoreSyncPath}
-              onPush={() => void handleSyncCloudWorkspace()}
-              onPull={() => void handlePullCloudWorkspace()}
-              onOpenShareModal={handleOpenShareLinkModal}
-              onCreateProject={() => void handleCreateCloudProject()}
-              onLinkProject={() => void handleLinkCloudProject()}
-              onOpenCollabSettings={() => openDrawerTab("collab")}
-            />
-          ) : (
-            <Sidebar
-              locale={locale}
-              tab={drawerTab}
-              messages={messages}
-              sessions={agentSessions}
-              activeSessionId={activeSessionId}
-              onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
-              onNewSession={() => void handleNewSession()}
-              onRunAgent={handleRunAgent}
-              pendingPatchSummary={pendingPatch?.summary}
-              onApplyPatch={handleApplyPatch}
-              compileLog={mergedCompileLog}
-              compileStatus={snapshot.compileResult.status}
-              projectConfig={snapshot.projectConfig}
-              compileEnvironment={compileEnvironment}
-              isCheckingCompileEnvironment={isCheckingCompileEnvironment}
-              onRefreshCompileEnvironment={() => void refreshCompileEnvironment()}
-              onSetCompileEngine={(engine) => void handleSetCompileEngine(engine)}
-              onSetAutoCompile={(enabled) => void handleSetAutoCompile(enabled)}
-              diagnosticsCount={snapshot.compileResult.diagnostics.length}
-              briefs={snapshot.figureBriefs}
-              assets={snapshot.assets}
-              selectedBriefId={selectedBrief?.id}
-              selectedAssetId={selectedAsset?.id}
-              onCreateBrief={handleCreateBrief}
-              onRunFigureSkill={handleRunFigureSkill}
-              onGenerateFigure={handleGenerateFigure}
-              onInsertFigure={handleInsertFigure}
-              onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find((brief) => brief.id === briefId) ?? null)}
-              onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
-              providers={snapshot.providers}
-              activeProviderId={activeProfile?.providerId || snapshot.providers.find((p) => p.isEnabled)?.id}
-              activeChatProfile={activeProfile}
-              skills={snapshot.skills}
-              usageRecords={usageRecords}
-              onSelectChatVendor={handleSelectChatVendor}
-              onSelectChatModel={handleSelectChatModel}
-              onToggleSkill={handleToggleSkill}
-              streamThinkingText={streamThinkingText}
-              streamThinkingHistoryText={streamThinkingHistoryText}
-              streamThinkingDurationMs={streamThinkingDurationMs}
-              streamContent={streamContent}
-              streamError={streamError}
-              isStreaming={isStreaming}
-              onSendMessage={handleSendMessage}
-              onDismissPatch={handleDismissPatch}
-              activeResearchTask={activeLocalizedTaskContext}
-              composerPreset={taskComposerPreset}
-              onExitResearchTaskMode={handleExitResearchTaskMode}
-              onOpenResearchCanvas={() => setWorkspaceSurface("research")}
-              onApplyTaskUpdateSuggestion={handleApplyResearchTaskSuggestion}
-              collabAuthSession={collabAuthSession}
-              collabConfig={collabConfigState}
-              cloudCollab={snapshot.collab ?? null}
-              collabBusyAction={collabBusyAction}
-              collabNotice={collabNotice}
-              collabStatus={currentCollabStatus}
-              activeFilePath={activeFilePath}
-              onOpenLoginModal={() => {
-                setCollabLoginMode("edit");
-                setLoginModalOpen(true);
-              }}
-              onLogout={handleCollabLogout}
-              onSaveCollabConfig={handleSaveCollabConfig}
-              onCreateCloudProject={() => void handleCreateCloudProject()}
-              onLinkCloudProject={() => void handleLinkCloudProject()}
-              onUnlinkCloudProject={() => void handleUnlinkCloudProject()}
-              onCopyShareLink={handleOpenShareLinkModal}
-              onWorkerLogin={() => handleWorkerTerminalAction("login")}
-              onWorkerDeploy={() => handleWorkerTerminalAction("deploy")}
-              onWorkerLoginAndDeploy={() => handleWorkerTerminalAction("login-deploy")}
-              comments={activeDocComments}
-              onResolveComment={handleResolveComment}
-              onReplyComment={handleReplyComment}
-              onDeleteComment={handleDeleteComment}
-              onJumpToCommentLine={handleJumpToCommentLine}
-            />
-          ))}
+          {isDrawerVisible && (
+            <>
+              <div className="workspace-drawer" style={{ width: drawerWidth }}>
+                <PaneErrorBoundary
+                  title={isZh ? "侧栏面板" : "Sidebar Pane"}
+                  resetKey={`${drawerTab}:${snapshot.projectConfig.rootPath}`}
+                >
+                  {drawerTab === "project" ? (
+                    <ProjectSidebar
+                      locale={locale}
+                      projectName={workspaceLabelFromRoot(snapshot.projectConfig.rootPath) || (isZh ? "未命名项目" : "Untitled Project")}
+                      mode={workspacePaneMode}
+                      nodes={snapshot.tree}
+                      activeFile={focusedTreePath}
+                      dirtyPaths={dirtyPathSet}
+                      collabSyncStates={collabWorkspaceSyncSummary.byPath}
+                      outlineContent={outlineNode}
+                      onModeChange={setWorkspacePaneMode}
+                      onOpenNode={handleOpenNode}
+                      onCreateFile={handleCreateFile}
+                      onCreateFolder={handleCreateFolder}
+                      onDeleteFile={handleDeleteFile}
+                      onRenameFile={handleRenameFile}
+                      onRequestCreateFile={() => void handleQuickCreateFile()}
+                      onRequestCreateFolder={() => void handleQuickCreateFolder()}
+                    />
+                  ) : drawerTab === "sync" ? (
+                    <SyncSidebar
+                      locale={locale}
+                      projectId={snapshot.collab?.cloudProjectId ?? null}
+                      workspaceLabel={workspaceLabelFromRoot(snapshot.projectConfig.rootPath)}
+                      linkedAt={snapshot.collab?.linkedAt ?? ""}
+                      notice={collabNotice}
+                      lastSyncAt={lastManualCollabSyncAt}
+                      role={currentCollabStatus.role}
+                      collabStatus={currentCollabStatus}
+                      busyAction={collabBusyAction}
+                      changes={syncChangeEntries}
+                      ignoredPaths={ignoredSyncPaths}
+                      onIgnorePath={handleIgnoreSyncPath}
+                      onUnignorePath={handleUnignoreSyncPath}
+                      onPush={() => void handleSyncCloudWorkspace()}
+                      onPull={() => void handlePullCloudWorkspace()}
+                      onOpenShareModal={handleOpenShareLinkModal}
+                      onCreateProject={() => void handleCreateCloudProject()}
+                      onLinkProject={() => void handleLinkCloudProject()}
+                      onOpenCollabSettings={() => openDrawerTab("collab")}
+                    />
+                  ) : (
+                    <Sidebar
+                      locale={locale}
+                      tab={drawerTab}
+                      messages={messages}
+                      sessions={agentSessions}
+                      activeSessionId={activeSessionId}
+                      onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
+                      onNewSession={() => void handleNewSession()}
+                      onRunAgent={handleRunAgent}
+                      pendingPatchSummary={pendingPatch?.summary}
+                      onApplyPatch={handleApplyPatch}
+                      compileLog={mergedCompileLog}
+                      compileStatus={snapshot.compileResult.status}
+                      projectConfig={snapshot.projectConfig}
+                      compileEnvironment={compileEnvironment}
+                      isCheckingCompileEnvironment={isCheckingCompileEnvironment}
+                      onRefreshCompileEnvironment={() => void refreshCompileEnvironment()}
+                      onSetCompileEngine={(engine) => void handleSetCompileEngine(engine)}
+                      onSetAutoCompile={(enabled) => void handleSetAutoCompile(enabled)}
+                      diagnosticsCount={snapshot.compileResult.diagnostics.length}
+                      briefs={snapshot.figureBriefs}
+                      assets={snapshot.assets}
+                      selectedBriefId={selectedBrief?.id}
+                      selectedAssetId={selectedAsset?.id}
+                      onCreateBrief={handleCreateBrief}
+                      onRunFigureSkill={handleRunFigureSkill}
+                      onGenerateFigure={handleGenerateFigure}
+                      onInsertFigure={handleInsertFigure}
+                      onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find((brief) => brief.id === briefId) ?? null)}
+                      onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
+                      providers={snapshot.providers}
+                      activeProviderId={activeProfile?.providerId || snapshot.providers.find((p) => p.isEnabled)?.id}
+                      activeChatProfile={activeProfile}
+                      skills={snapshot.skills}
+                      usageRecords={usageRecords}
+                      onSelectChatVendor={handleSelectChatVendor}
+                      onSelectChatModel={handleSelectChatModel}
+                      onToggleSkill={handleToggleSkill}
+                      streamThinkingText={streamThinkingText}
+                      streamThinkingHistoryText={streamThinkingHistoryText}
+                      streamThinkingDurationMs={streamThinkingDurationMs}
+                      streamContent={streamContent}
+                      streamError={streamError}
+                      isStreaming={isStreaming}
+                      onSendMessage={handleSendMessage}
+                      onDismissPatch={handleDismissPatch}
+                      activeResearchTask={activeLocalizedTaskContext}
+                      composerPreset={taskComposerPreset}
+                      onExitResearchTaskMode={handleExitResearchTaskMode}
+                      onOpenResearchCanvas={() => setWorkspaceSurface("research")}
+                      onApplyTaskUpdateSuggestion={handleApplyResearchTaskSuggestion}
+                      collabAuthSession={collabAuthSession}
+                      collabConfig={collabConfigState}
+                      cloudCollab={snapshot.collab ?? null}
+                      collabBusyAction={collabBusyAction}
+                      collabNotice={collabNotice}
+                      collabStatus={currentCollabStatus}
+                      activeFilePath={activeFilePath}
+                      onOpenLoginModal={() => {
+                        setCollabLoginMode("edit");
+                        setLoginModalOpen(true);
+                      }}
+                      onLogout={handleCollabLogout}
+                      onSaveCollabConfig={handleSaveCollabConfig}
+                      onCreateCloudProject={() => void handleCreateCloudProject()}
+                      onLinkCloudProject={() => void handleLinkCloudProject()}
+                      onUnlinkCloudProject={() => void handleUnlinkCloudProject()}
+                      onCopyShareLink={handleOpenShareLinkModal}
+                      onWorkerLogin={() => handleWorkerTerminalAction("login")}
+                      onWorkerDeploy={() => void handleWorkerTerminalAction("deploy")}
+                      onWorkerLoginAndDeploy={() => void handleWorkerTerminalAction("login-deploy")}
+                      comments={activeDocComments}
+                      onResolveComment={handleResolveComment}
+                      onReplyComment={handleReplyComment}
+                      onDeleteComment={handleDeleteComment}
+                      onJumpToCommentLine={handleJumpToCommentLine}
+                    />
+                  )}
+                </PaneErrorBoundary>
+              </div>
+              <div
+                className="workspace-drawer-resize-handle"
+                onMouseDown={handleDrawerResizeStart}
+                role="separator"
+                aria-label={isZh ? "调整左侧栏宽度" : "Resize left sidebar"}
+              />
+            </>
+          )}
 
+          <PaneErrorBoundary
+            title={isZh ? "主工作区" : "Workspace"}
+            resetKey={`${workspaceSurface}:${activeFilePath}:${previewSelection.kind}`}
+          >
           <div className="workspace-body" ref={workspaceBodyRef}>
             {showResearchSurface ? (
               <div className="workspace-main">
@@ -4246,6 +4407,7 @@ function App() {
               </>
             )}
           </div>
+          </PaneErrorBoundary>
         </div>
 
       {loginModalOpen && (

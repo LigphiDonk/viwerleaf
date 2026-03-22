@@ -185,6 +185,7 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
   const toolCalls: ToolCallBlock[] = [];
   const blocks: RenderBlock[] = [];
   const textLines: string[] = [];
+  const pendingToolIndices: number[] = [];
   const pushTextBlock = () => {
     if (textLines.length === 0) {
       return;
@@ -198,6 +199,22 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
       });
     }
     textLines.length = 0;
+  };
+  const resolvePendingTool = () => {
+    while (pendingToolIndices.length > 0) {
+      const nextIndex = pendingToolIndices[pendingToolIndices.length - 1];
+      const candidate = toolCalls[nextIndex];
+      if (!candidate) {
+        pendingToolIndices.pop();
+        continue;
+      }
+      if (candidate.output?.trim()) {
+        pendingToolIndices.pop();
+        continue;
+      }
+      return candidate;
+    }
+    return null;
   };
   let i = 0;
   while (i < lines.length) {
@@ -223,11 +240,16 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
         }
       }
 
-      if (cursor < lines.length && lines[cursor].startsWith("[Status: ")) {
+      while (cursor < lines.length && lines[cursor].startsWith("[Status: ")) {
         const statusLine = lines[cursor];
         const lastBracket = statusLine.lastIndexOf("]");
         const nextStatus = statusLine.slice("[Status: ".length, lastBracket > -1 ? lastBracket : undefined).trim();
-        if (nextStatus === "error" || nextStatus === "requested" || nextStatus === "running") {
+        if (
+          nextStatus === "error" ||
+          nextStatus === "requested" ||
+          nextStatus === "running" ||
+          nextStatus === "completed"
+        ) {
           status = nextStatus;
         }
         cursor += 1;
@@ -255,19 +277,86 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
         cursor += 1;
       }
 
-      toolCalls.push({
+      const call: ToolCallBlock = {
         id: `${i}-${toolId}`,
         toolId,
         args,
         output: result.trim() || undefined,
         status: result ? (status === "running" ? "completed" : status) : status,
-      });
+      };
+      toolCalls.push(call);
       blocks.push({
         kind: "tool",
         id: `${i}-${toolId}`,
-        call: toolCalls[toolCalls.length - 1],
+        call,
       });
+      if (!call.output?.trim() && call.status === "running") {
+        pendingToolIndices.push(toolCalls.length - 1);
+      }
       i = cursor - 1;
+    } else if (lines[i].startsWith("[Status: ")) {
+      const pendingTool = resolvePendingTool();
+      if (!pendingTool) {
+        textLines.push(lines[i]);
+        i++;
+        continue;
+      }
+
+      const lastBracket = lines[i].lastIndexOf("]");
+      const nextStatus = lines[i]
+        .slice("[Status: ".length, lastBracket > -1 ? lastBracket : undefined)
+        .trim();
+      if (
+        nextStatus === "error" ||
+        nextStatus === "requested" ||
+        nextStatus === "running" ||
+        nextStatus === "completed"
+      ) {
+        pendingTool.status = nextStatus;
+      }
+    } else if (lines[i].trim() === "[Result]") {
+      const pendingTool = resolvePendingTool();
+      if (!pendingTool) {
+        textLines.push(lines[i]);
+        i++;
+        continue;
+      }
+
+      let cursor = i + 1;
+      const resultLines: string[] = [];
+      while (cursor < lines.length && lines[cursor].trim() !== "[/Result]") {
+        resultLines.push(lines[cursor]);
+        cursor += 1;
+      }
+
+      pendingTool.output = resultLines.join("\n").trim() || undefined;
+      if (pendingTool.status === "running") {
+        pendingTool.status = "completed";
+      }
+
+      if (cursor < lines.length && lines[cursor].trim() === "[/Result]") {
+        i = cursor;
+      } else {
+        i = cursor - 1;
+      }
+    } else if (lines[i].startsWith("[Result: ")) {
+      const pendingTool = resolvePendingTool();
+      if (!pendingTool) {
+        textLines.push(lines[i]);
+        i++;
+        continue;
+      }
+
+      const resultLine = lines[i];
+      const lastBracket = resultLine.lastIndexOf("]");
+      pendingTool.output = (
+        lastBracket > "[Result: ".length - 1
+          ? resultLine.slice("[Result: ".length, lastBracket)
+          : resultLine.slice("[Result: ".length)
+      ).trim() || undefined;
+      if (pendingTool.status === "running") {
+        pendingTool.status = "completed";
+      }
     } else {
       textLines.push(lines[i]);
     }
@@ -822,6 +911,8 @@ function TaskSuggestionCard({
   onApply: () => void | Promise<void>;
   onDismiss: () => void;
 }) {
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyError, setApplyError] = useState("");
   const operations: SuggestionOperation[] = suggestion.operations?.length
     ? suggestion.operations
     : suggestion.taskId && suggestion.changes
@@ -858,6 +949,22 @@ function TaskSuggestionCard({
     title = firstOperation.taskId;
   }
 
+  const handleApply = async () => {
+    if (isApplying) {
+      return;
+    }
+
+    setIsApplying(true);
+    setApplyError("");
+    try {
+      await onApply();
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
   return (
     <div className="ag-task-suggestion-card">
       <div className="ag-task-suggestion-card__head">
@@ -885,9 +992,14 @@ function TaskSuggestionCard({
         ))}
         {suggestion.workingMemory ? <span className="ag-task-suggestion-card__chip">项目记忆</span> : null}
       </div>
+      {applyError ? (
+        <div className="ag-task-suggestion-card__error">{applyError}</div>
+      ) : null}
       <div className="ag-task-suggestion-card__actions">
-        <button type="button" className="ag-patch-open-btn" onClick={onDismiss}>忽略</button>
-        <button type="button" className="ag-patch-apply-btn" onClick={() => void onApply()}>应用到画布</button>
+        <button type="button" className="ag-patch-open-btn" onClick={onDismiss} disabled={isApplying}>忽略</button>
+        <button type="button" className="ag-patch-apply-btn" onClick={() => void handleApply()} disabled={isApplying}>
+          {isApplying ? "应用中…" : "应用到画布"}
+        </button>
       </div>
     </div>
   );

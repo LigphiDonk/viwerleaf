@@ -326,10 +326,16 @@ export const desktop = {
     );
   },
   applyResearchTaskSuggestion(request: ApplyResearchTaskSuggestionRequest) {
+    const normalizedRequest = {
+      taskId: request.taskId ?? null,
+      changes: request.changes ?? null,
+      operations: request.operations ?? null,
+      workingMemory: request.workingMemory ?? null,
+    } satisfies ApplyResearchTaskSuggestionRequest;
     return runOrMock<WorkspaceSnapshot>(
       "apply_research_task_suggestion",
-      { request },
-      () => mockRuntime.applyResearchTaskSuggestion(request),
+      { request: normalizedRequest },
+      () => mockRuntime.applyResearchTaskSuggestion(normalizedRequest),
     );
   },
   applyAgentPatch(filePath: string, content: string) {

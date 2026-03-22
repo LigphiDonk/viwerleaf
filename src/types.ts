@@ -551,10 +551,10 @@ export type ResearchTaskPlanOperation =
   };
 
 export interface ApplyResearchTaskSuggestionRequest {
-  taskId?: string;
-  changes?: ResearchTaskUpdateChanges;
-  operations?: ResearchTaskPlanOperation[];
-  workingMemory?: string;
+  taskId?: string | null;
+  changes?: ResearchTaskUpdateChanges | null;
+  operations?: ResearchTaskPlanOperation[] | null;
+  workingMemory?: string | null;
 }
 
 export interface TaskUpdateSuggestion {
