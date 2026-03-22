@@ -23,6 +23,7 @@ import { CollabProjectModal } from "./components/CollabProjectModal";
 import { CreateEntryModal } from "./components/CreateEntryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
 import { ResearchCanvas } from "./components/ResearchCanvas";
+import { LiteratureManager } from "./components/LiteratureManager";
 import { ShareLinkModal } from "./components/ShareLinkModal";
 import { createLocalAdapter } from "./lib/adapters";
 import {
@@ -565,6 +566,7 @@ function App() {
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
   const [workspaceSurface, setWorkspaceSurface] = useState<WorkspaceSurface>("research");
   const [activeResearchTaskId, setActiveResearchTaskId] = useState<string | null>(null);
+  const [literatureTaskFilterId, setLiteratureTaskFilterId] = useState<string | null>(null);
   const [taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
   const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
   const [lastAutoWritingHandoffKey, setLastAutoWritingHandoffKey] = useState("");
@@ -1969,6 +1971,16 @@ function App() {
       description: "该研究产物暂时不支持内置预览。",
     });
     openPreviewPane();
+  });
+
+  const handleOpenLiteratureLibrary = useEffectEvent(() => {
+    setLiteratureTaskFilterId(null);
+    setWorkspaceSurface("literature");
+  });
+
+  const handleOpenLiteratureForTask = useEffectEvent((taskId: string) => {
+    setLiteratureTaskFilterId(taskId);
+    setWorkspaceSurface("literature");
   });
 
   const enableSkillsById = useEffectEvent(async (skillIds: string[]) => {
@@ -3505,7 +3517,8 @@ function App() {
       )
       : null;
   const showResearchSurface = hasProject && workspaceSurface === "research";
-  const showWritingSurface = !showResearchSurface;
+  const showLiteratureSurface = hasProject && workspaceSurface === "literature";
+  const showWritingSurface = hasProject && !showResearchSurface && !showLiteratureSurface;
   const showResearchHandoffBanner = Boolean(
     showWritingSurface &&
     researchSnapshot &&
@@ -3601,6 +3614,13 @@ function App() {
                   onClick={() => setWorkspaceSurface("writing")}
                 >
                   {isZh ? "写作台" : "Writing Desk"}
+                </button>
+                <button
+                  type="button"
+                  className={`surface-switcher__btn ${workspaceSurface === "literature" ? "is-active" : ""}`}
+                  onClick={() => handleOpenLiteratureLibrary()}
+                >
+                  {isZh ? "文献管理" : "Literature"}
                 </button>
               </div>
               {workspaceSurface === "writing" ? (
@@ -3763,6 +3783,14 @@ function App() {
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
+            </button>
+
+            <button
+              className={`activity-icon hover-spring ${workspaceSurface === "literature" ? "is-active" : ""}`}
+              onClick={() => handleOpenLiteratureLibrary()}
+              title={isZh ? "文献管理" : "Literature"}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="14" y2="10"/></svg>
             </button>
 
             <div style={{ flex: 1 }}></div>
@@ -3953,7 +3981,16 @@ function App() {
                   onUseTaskInChat={handleUseResearchTaskInChat}
                   onEnterTask={handleUseResearchTaskInChat}
                   onAddTask={handleAddResearchTask}
+                  onOpenLiteratureForTask={handleOpenLiteratureForTask}
                   onOpenWriting={() => setWorkspaceSurface("writing")}
+                />
+              </div>
+            ) : showLiteratureSurface ? (
+              <div className="workspace-main">
+                <LiteratureManager
+                  locale={locale}
+                  filterTaskId={literatureTaskFilterId}
+                  onClearTaskFilter={() => setLiteratureTaskFilterId(null)}
                 />
               </div>
             ) : (

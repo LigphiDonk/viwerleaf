@@ -132,9 +132,8 @@ fn migrate_providers_table(conn: &rusqlite::Connection) -> SqlResult<()> {
         return Ok(());
     }
 
-    let _ = conn.execute_batch(
-        "ROLLBACK TO SAVEPOINT probe_providers; RELEASE SAVEPOINT probe_providers;",
-    );
+    let _ = conn
+        .execute_batch("ROLLBACK TO SAVEPOINT probe_providers; RELEASE SAVEPOINT probe_providers;");
 
     conn.execute_batch(
         "PRAGMA foreign_keys=OFF;
@@ -211,9 +210,8 @@ fn migrate_skills_table(conn: &rusqlite::Connection) -> SqlResult<()> {
         return Ok(());
     }
 
-    let _ = conn.execute_batch(
-        "ROLLBACK TO SAVEPOINT probe_skills; RELEASE SAVEPOINT probe_skills;",
-    );
+    let _ =
+        conn.execute_batch("ROLLBACK TO SAVEPOINT probe_skills; RELEASE SAVEPOINT probe_skills;");
 
     conn.execute_batch(
         "PRAGMA foreign_keys=OFF;

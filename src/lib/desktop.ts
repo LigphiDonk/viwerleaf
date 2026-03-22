@@ -16,6 +16,10 @@ import type {
   CliAgentStatus,
   FigureBriefDraft,
   GeneratedAsset,
+  LiteratureAttachment,
+  LiteratureCandidate,
+  LiteratureItem,
+  LiteratureSearchResult,
   ProjectConfig,
   ProjectFile,
   ProfileConfig,
@@ -208,6 +212,77 @@ export const desktop = {
   updateProjectConfig(config: ProjectConfig) {
     return runOrMock<ProjectConfig>("update_project_config", { config }, () =>
       mockRuntime.updateProjectConfig?.(config) ?? Promise.resolve(config),
+    );
+  },
+  listLiterature() {
+    return runOrMock<LiteratureItem[]>("list_literature", {}, () =>
+      mockRuntime.listLiterature?.() ?? Promise.resolve([]),
+    );
+  },
+  listLiteratureInbox() {
+    return runOrMock<LiteratureCandidate[]>("list_literature_inbox", {}, () =>
+      mockRuntime.listLiteratureInbox?.() ?? Promise.resolve([]),
+    );
+  },
+  listLiteratureAttachments(literatureId: string) {
+    return runOrMock<LiteratureAttachment[]>("list_literature_attachments", { literatureId }, () =>
+      mockRuntime.listLiteratureAttachments?.(literatureId) ?? Promise.resolve([]),
+    );
+  },
+  addLiterature(item: LiteratureItem) {
+    return runOrMock("add_literature", { item }, () =>
+      mockRuntime.addLiterature?.(item) ?? Promise.resolve(),
+    );
+  },
+  addLiteratureWithPdf(item: LiteratureItem, sourcePath: string) {
+    return runOrMock<LiteratureItem>("add_literature_with_pdf", { item, sourcePath }, () =>
+      mockRuntime.addLiteratureWithPdf?.(item, sourcePath) ?? Promise.resolve(item),
+    );
+  },
+  addLiteratureCandidate(candidate: LiteratureCandidate) {
+    return runOrMock("add_literature_candidate", { candidate }, () =>
+      mockRuntime.addLiteratureCandidate?.(candidate) ?? Promise.resolve(),
+    );
+  },
+  deleteLiterature(id: string) {
+    return runOrMock("delete_literature", { id }, () =>
+      mockRuntime.deleteLiterature?.(id) ?? Promise.resolve(),
+    );
+  },
+  approveLiteratureCandidate(inboxId: string) {
+    return runOrMock<LiteratureItem>("approve_literature_candidate", { inboxId }, () =>
+      mockRuntime.approveLiteratureCandidate?.(inboxId) ?? Promise.reject(new Error("Inbox approval is unavailable")),
+    );
+  },
+  updateLiteratureNotes(id: string, notes: string) {
+    return runOrMock("update_literature_notes", { id, notes }, () =>
+      mockRuntime.updateLiteratureNotes?.(id, notes) ?? Promise.resolve(),
+    );
+  },
+  searchLiterature(query: string) {
+    return runOrMock<LiteratureSearchResult[]>("search_literature", { query }, () =>
+      mockRuntime.searchLiterature?.(query) ?? Promise.resolve([]),
+    );
+  },
+  linkLiteratureToTask(literatureId: string, taskId: string) {
+    return runOrMock("link_literature_to_task", { literatureId, taskId }, () =>
+      mockRuntime.linkLiteratureToTask?.(literatureId, taskId) ?? Promise.resolve(),
+    );
+  },
+  ingestLiterature(literatureId: string, pdfPath: string, title: string) {
+    return runOrMock<Record<string, unknown>>("ingest_literature", { literatureId, pdfPath, title }, () =>
+      mockRuntime.ingestLiterature?.(literatureId, pdfPath, title) ??
+        Promise.resolve({ literatureId, chunks: [], ocrUsed: false, ocrStatus: "none" }),
+    );
+  },
+  exportPaperBank() {
+    return runOrMock<{ papers: unknown[] }>("export_paper_bank", {}, () =>
+      mockRuntime.exportPaperBank?.() ?? Promise.resolve({ papers: [] }),
+    );
+  },
+  countLiteratureForTask(taskId: string) {
+    return runOrMock<number>("count_literature_for_task", { taskId }, () =>
+      mockRuntime.countLiteratureForTask?.(taskId) ?? Promise.resolve(0),
     );
   },
   compileProject(filePath: string) {

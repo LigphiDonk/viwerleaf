@@ -159,8 +159,6 @@ pub struct AgentSessionSummary {
     pub last_message_preview: String,
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSuggestedPatch {
@@ -611,4 +609,86 @@ pub struct WorkspaceSnapshot {
     pub figure_briefs: Vec<FigureBriefDraft>,
     pub assets: Vec<GeneratedAsset>,
     pub research: Option<ResearchCanvasSnapshot>,
+}
+
+/* ── Literature Management ── */
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LiteratureItem {
+    pub id: String,
+    pub title: String,
+    pub authors: Vec<String>,
+    pub year: i32,
+    #[serde(default)]
+    pub journal: String,
+    #[serde(default)]
+    pub doi: String,
+    #[serde(default, rename = "abstract")]
+    pub abstract_text: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub dedup_hash: String,
+    #[serde(default)]
+    pub linked_task_ids: Vec<String>,
+    #[serde(default)]
+    pub added_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LiteratureAttachment {
+    pub id: String,
+    pub literature_id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub file_path: String,
+    #[serde(default)]
+    pub ocr_status: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LiteratureCandidate {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub year: i32,
+    #[serde(default)]
+    pub doi: String,
+    #[serde(default, rename = "abstract")]
+    pub abstract_text: String,
+    #[serde(default)]
+    pub source_context: String,
+    #[serde(default)]
+    pub pdf_path: String,
+    #[serde(default)]
+    pub dedup_status: String,
+    #[serde(default)]
+    pub matched_item_id: String,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LiteratureSearchResult {
+    pub item: LiteratureItem,
+    pub match_field: String,
+    pub snippet: String,
+    pub chunk_index: Option<i32>,
+    pub rank: i32,
 }

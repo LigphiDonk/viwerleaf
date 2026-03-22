@@ -353,7 +353,8 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
     file_nodes.sort_by(|left, right| left.path.cmp(&right.path));
 
     let conn = state.db.lock().expect("db lock poisoned");
-    skill::refresh_skill_registry(&conn, &state.app_root, Some(root)).map_err(anyhow::Error::msg)?;
+    skill::refresh_skill_registry(&conn, &state.app_root, Some(root))
+        .map_err(anyhow::Error::msg)?;
     let providers = provider::list_providers(&conn).map_err(anyhow::Error::msg)?;
     let profiles = profile::list_profiles(&conn).map_err(anyhow::Error::msg)?;
     let skills = skill::list_skills(&conn).map_err(anyhow::Error::msg)?;

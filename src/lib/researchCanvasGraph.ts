@@ -26,7 +26,9 @@ export interface ResearchTaskNodeData extends Record<string, unknown> {
   isCurrentTask?: boolean;
   isExecutableTask?: boolean;
   isBlockedTask?: boolean;
+  literatureCount?: number;
   onEnterTask?: (task: ResearchTask) => void;
+  onNavigateToLiterature?: (taskId: string) => void;
 }
 
 export type ResearchStageNode = Node<ResearchStageNodeData, "researchStage">;

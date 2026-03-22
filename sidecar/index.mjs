@@ -61,6 +61,13 @@ async function main() {
       await runBanana(payload);
       break;
     }
+    case "ingest-literature": {
+      const payload = await parsePayload();
+      const { ingestLiteraturePdf } = await import("./utils/literature_ingest.mjs");
+      const result = await ingestLiteraturePdf(payload);
+      process.stdout.write(JSON.stringify(result));
+      break;
+    }
     default:
       process.stderr.write(`Unknown sidecar command: ${command}\n`);
       process.exitCode = 1;

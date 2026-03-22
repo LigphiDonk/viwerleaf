@@ -15,6 +15,10 @@ import type {
   Diagnostic,
   FigureBriefDraft,
   GeneratedAsset,
+  LiteratureAttachment,
+  LiteratureCandidate,
+  LiteratureItem,
+  LiteratureSearchResult,
   ProjectConfig,
   ProjectFile,
   ProjectNode,
@@ -571,6 +575,10 @@ let activeFile = "sections/introduction.tex";
 let compileCounter = 0;
 const figureBriefs: FigureBriefDraft[] = [];
 const assets: GeneratedAsset[] = [];
+const literatureItems: LiteratureItem[] = [];
+const literatureInbox: LiteratureCandidate[] = [];
+const literatureAttachments: LiteratureAttachment[] = [];
+const literatureChunks: Array<{ literatureId: string; chunkIndex: number; content: string }> = [];
 const agentSessions: AgentSessionSummary[] = [];
 const agentMessages: AgentMessage[] = [
   {
@@ -594,6 +602,81 @@ function syncProjectConfigFile() {
   if (configFile) {
     configFile.content = JSON.stringify(projectConfig, null, 2);
   }
+}
+
+function computeLiteratureDedupHash(title: string, year: number) {
+  const normalized = title
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]/g, "");
+  return `${normalized}:${year}`;
+}
+
+function buildLiteratureItem(item: LiteratureItem): LiteratureItem {
+  return {
+    ...item,
+    dedupHash: item.dedupHash || computeLiteratureDedupHash(item.title, item.year),
+    addedAt: item.addedAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || new Date().toISOString(),
+  };
+}
+
+function checkMockLiteratureDedup(candidate: Pick<LiteratureCandidate, "doi" | "title" | "year">) {
+  if (candidate.doi.trim()) {
+    const byDoi = literatureItems.find((item) => item.doi === candidate.doi);
+    if (byDoi) return byDoi.id;
+  }
+
+  const hash = computeLiteratureDedupHash(candidate.title, candidate.year);
+  return literatureItems.find((item) => item.dedupHash === hash)?.id ?? "";
+}
+
+function buildMockSearchResults(query: string): LiteratureSearchResult[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+
+  const results: LiteratureSearchResult[] = [];
+  for (const item of literatureItems) {
+    const authors = item.authors.join(", ");
+    let matchField: LiteratureSearchResult["matchField"] | null = null;
+    let snippet = "";
+    let chunkIndex: number | undefined;
+
+    if (item.title.toLowerCase().includes(needle)) {
+      matchField = "title";
+      snippet = item.title;
+    } else if (authors.toLowerCase().includes(needle)) {
+      matchField = "authors";
+      snippet = authors;
+    } else if (item.abstract.toLowerCase().includes(needle)) {
+      matchField = "abstract";
+      snippet = item.abstract.slice(0, 160);
+    } else if (item.notes.toLowerCase().includes(needle)) {
+      matchField = "notes";
+      snippet = item.notes.slice(0, 160);
+    } else {
+      const chunk = literatureChunks.find(
+        (entry) =>
+          entry.literatureId === item.id && entry.content.toLowerCase().includes(needle),
+      );
+      if (chunk) {
+        matchField = "chunk";
+        snippet = chunk.content.slice(0, 160);
+        chunkIndex = chunk.chunkIndex;
+      }
+    }
+
+    if (!matchField) continue;
+    results.push({
+      item: structuredClone(item),
+      matchField,
+      snippet,
+      chunkIndex,
+      rank: results.length,
+    });
+  }
+
+  return results;
 }
 
 function getFile(path: string) {
@@ -1013,6 +1096,208 @@ export const mockRuntime = {
     Object.assign(projectConfig, config);
     syncProjectConfigFile();
     return structuredClone(projectConfig);
+  },
+
+  async listLiterature() {
+    return structuredClone(literatureItems);
+  },
+
+  async listLiteratureInbox() {
+    return structuredClone(literatureInbox);
+  },
+
+  async listLiteratureAttachments(literatureId: string) {
+    return structuredClone(
+      literatureAttachments.filter((attachment) => attachment.literatureId === literatureId),
+    );
+  },
+
+  async addLiterature(item: LiteratureItem) {
+    literatureItems.unshift(buildLiteratureItem(item));
+  },
+
+  async addLiteratureWithPdf(item: LiteratureItem, sourcePath: string) {
+    const nextItem = buildLiteratureItem(item);
+    literatureItems.unshift(nextItem);
+    literatureAttachments.push({
+      id: crypto.randomUUID(),
+      literatureId: nextItem.id,
+      kind: "pdf",
+      filePath: sourcePath || `.viewerleaf/literature/pdfs/${nextItem.id}.pdf`,
+      ocrStatus: "none",
+      source: "manual",
+      createdAt: new Date().toISOString(),
+    });
+    return structuredClone(nextItem);
+  },
+
+  async addLiteratureCandidate(candidate: LiteratureCandidate) {
+    const matchedItemId = checkMockLiteratureDedup(candidate);
+    literatureInbox.unshift({
+      ...candidate,
+      dedupStatus: matchedItemId ? "duplicate" : "unique",
+      matchedItemId,
+      createdAt: candidate.createdAt || new Date().toISOString(),
+    });
+  },
+
+  async deleteLiterature(id: string) {
+    const itemIndex = literatureItems.findIndex((item) => item.id === id);
+    if (itemIndex >= 0) {
+      literatureItems.splice(itemIndex, 1);
+    }
+
+    for (let index = literatureAttachments.length - 1; index >= 0; index -= 1) {
+      if (literatureAttachments[index].literatureId === id) {
+        literatureAttachments.splice(index, 1);
+      }
+    }
+  },
+
+  async approveLiteratureCandidate(inboxId: string) {
+    const inboxIndex = literatureInbox.findIndex((item) => item.id === inboxId);
+    if (inboxIndex < 0) {
+      throw new Error(`Inbox item not found: ${inboxId}`);
+    }
+
+    const candidate = literatureInbox[inboxIndex];
+    literatureInbox.splice(inboxIndex, 1);
+
+    if (candidate.dedupStatus === "duplicate" && candidate.matchedItemId) {
+      const existing = literatureItems.find((item) => item.id === candidate.matchedItemId);
+      if (existing) {
+        if (!existing.doi && candidate.doi) existing.doi = candidate.doi;
+        if (!existing.abstract && candidate.abstract) existing.abstract = candidate.abstract;
+        if (existing.authors.length === 0 && candidate.authors.length > 0) {
+          existing.authors = [...candidate.authors];
+        }
+        existing.updatedAt = new Date().toISOString();
+        return structuredClone(existing);
+      }
+    }
+
+    const nextItem = buildLiteratureItem({
+      id: crypto.randomUUID(),
+      title: candidate.title,
+      authors: [...candidate.authors],
+      year: candidate.year,
+      journal: "",
+      doi: candidate.doi,
+      abstract: candidate.abstract,
+      tags: [],
+      notes: "",
+      dedupHash: "",
+      linkedTaskIds: [],
+      addedAt: "",
+      updatedAt: "",
+    });
+    literatureItems.unshift(nextItem);
+    if (candidate.pdfPath) {
+      literatureAttachments.push({
+        id: crypto.randomUUID(),
+        literatureId: nextItem.id,
+        kind: "pdf",
+        filePath: candidate.pdfPath,
+        ocrStatus: "none",
+        source: "manual",
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return structuredClone(nextItem);
+  },
+
+  async updateLiteratureNotes(id: string, notes: string) {
+    const item = literatureItems.find((entry) => entry.id === id);
+    if (item) {
+      item.notes = notes;
+      item.updatedAt = new Date().toISOString();
+    }
+  },
+
+  async searchLiterature(query: string) {
+    return buildMockSearchResults(query);
+  },
+
+  async linkLiteratureToTask(literatureId: string, taskId: string) {
+    const item = literatureItems.find((entry) => entry.id === literatureId);
+    if (item && !item.linkedTaskIds.includes(taskId)) {
+      item.linkedTaskIds.push(taskId);
+      item.updatedAt = new Date().toISOString();
+    }
+  },
+
+  async ingestLiterature(literatureId: string, pdfPath: string, title: string) {
+    const markdownPath = `.viewerleaf/literature/markdown/${literatureId}.md`;
+    const chunkContent = `# ${title || "Untitled"}\n\nIndexed from ${pdfPath}`;
+
+    const existingChunkIndex = literatureChunks.findIndex((chunk) => chunk.literatureId === literatureId);
+    if (existingChunkIndex >= 0) {
+      literatureChunks.splice(existingChunkIndex, 1, {
+        literatureId,
+        chunkIndex: 0,
+        content: chunkContent,
+      });
+    } else {
+      literatureChunks.push({
+        literatureId,
+        chunkIndex: 0,
+        content: chunkContent,
+      });
+    }
+
+    const pdfAttachment = literatureAttachments.find(
+      (attachment) => attachment.literatureId === literatureId && attachment.kind === "pdf",
+    );
+    if (pdfAttachment) {
+      pdfAttachment.ocrStatus = "none";
+    }
+
+    const markdownAttachment = literatureAttachments.find(
+      (attachment) => attachment.literatureId === literatureId && attachment.kind === "markdown",
+    );
+    if (markdownAttachment) {
+      markdownAttachment.filePath = markdownPath;
+      markdownAttachment.ocrStatus = "none";
+      markdownAttachment.source = "manual";
+    } else {
+      literatureAttachments.push({
+        id: crypto.randomUUID(),
+        literatureId,
+        kind: "markdown",
+        filePath: markdownPath,
+        ocrStatus: "none",
+        source: "manual",
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    return {
+      literatureId,
+      markdownPath,
+      chunks: [{ chunkIndex: 0, content: chunkContent }],
+      ocrUsed: false,
+      ocrStatus: "none",
+    };
+  },
+
+  async exportPaperBank() {
+    return {
+      papers: literatureItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        authors: item.authors,
+        year: item.year,
+        journal: item.journal,
+        doi: item.doi,
+        abstract: item.abstract,
+        tags: item.tags,
+        linkedTaskIds: item.linkedTaskIds,
+      })),
+    };
+  },
+
+  async countLiteratureForTask(taskId: string) {
+    return literatureItems.filter((item) => item.linkedTaskIds.includes(taskId)).length;
   },
 
   async createFile(path: string, content: string) {

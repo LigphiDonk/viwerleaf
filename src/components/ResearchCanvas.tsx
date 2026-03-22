@@ -18,6 +18,7 @@ import {
   type ResearchStageContainerNode,
   type ResearchTaskNode,
 } from "../lib/researchCanvasGraph";
+import { desktop } from "../lib/desktop";
 import { localizeResearchSnapshot } from "../lib/researchLocale";
 import type {
   AppLocale,
@@ -39,6 +40,7 @@ interface ResearchCanvasProps {
   onUseTaskInChat: (task: ResearchTask) => Promise<void> | void;
   onEnterTask: (task: ResearchTask) => Promise<void> | void;
   onAddTask: (draft: ResearchTaskDraft) => Promise<void> | void;
+  onOpenLiteratureForTask: (taskId: string) => void;
   onOpenWriting: () => void;
 }
 
@@ -278,6 +280,18 @@ function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
       <div className="research-task-node__meta">
         <span>{task.inputsNeeded.length} {isZh ? "输入" : "inputs"}</span>
         <span>{task.artifactPaths.length} {isZh ? "产物" : "artifacts"}</span>
+        {(data.literatureCount ?? 0) > 0 && (
+          <span
+            className="research-task-node__lit-count"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onNavigateToLiterature?.(task.id);
+            }}
+            title={isZh ? "查看关联文献" : "View linked literature"}
+          >
+            📚 {data.literatureCount}
+          </span>
+        )}
         <span>{isExecutable ? (isZh ? "可执行" : "ready") : isBlocked ? (isZh ? "阻塞" : "blocked") : (isZh ? "等待中" : "waiting")}</span>
       </div>
       <div className="research-task-node__actions">
@@ -707,6 +721,7 @@ export function ResearchCanvas({
   onUseTaskInChat,
   onEnterTask,
   onAddTask,
+  onOpenLiteratureForTask,
   onOpenWriting,
 }: ResearchCanvasProps) {
   const isZh = locale === "zh-CN";
@@ -719,6 +734,7 @@ export function ResearchCanvas({
     () => (localizedResearch ? resolveResearchTaskExecutionState(localizedResearch) : { executableTaskIds: new Set<string>(), blockedTaskIds: new Set<string>() }),
     [localizedResearch],
   );
+  const [literatureCounts, setLiteratureCounts] = useState<Record<string, number>>({});
   const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
 
   /* Collapse state: which stages are collapsed */
@@ -740,6 +756,35 @@ export function ResearchCanvas({
     [localizedResearch, collapsedStages],
   );
 
+  useEffect(() => {
+    if (!localizedResearch) {
+      setLiteratureCounts({});
+      return;
+    }
+
+    let cancelled = false;
+    const loadCounts = async () => {
+      try {
+        const entries = await Promise.all(
+          localizedResearch.tasks.map(async (task) => [task.id, await desktop.countLiteratureForTask(task.id)] as const),
+        );
+        if (!cancelled) {
+          setLiteratureCounts(Object.fromEntries(entries));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load literature counts:", error);
+          setLiteratureCounts({});
+        }
+      }
+    };
+
+    void loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [localizedResearch]);
+
   const enrichedNodes = useMemo(
     () => graph.nodes.map((node) => {
       if (node.type === "researchTask") {
@@ -750,7 +795,9 @@ export function ResearchCanvas({
             isCurrentTask: node.data.task.id === activeTaskId || node.data.task.id === localizedResearch?.nextTask?.id,
             isExecutableTask: taskExecutionState.executableTaskIds.has(node.data.task.id),
             isBlockedTask: taskExecutionState.blockedTaskIds.has(node.data.task.id),
+            literatureCount: literatureCounts[node.data.task.id] ?? 0,
             onEnterTask,
+            onNavigateToLiterature: onOpenLiteratureForTask,
           },
         };
       }
@@ -771,7 +818,7 @@ export function ResearchCanvas({
         },
       };
     }),
-    [activeTaskId, graph.nodes, localizedResearch?.nextTask?.id, localizedResearch?.tasks, onEnterTask, onInitializeStage, handleToggleCollapse, taskExecutionState.blockedTaskIds, taskExecutionState.executableTaskIds],
+    [activeTaskId, graph.nodes, literatureCounts, localizedResearch?.nextTask?.id, localizedResearch?.tasks, onEnterTask, onInitializeStage, onOpenLiteratureForTask, handleToggleCollapse, taskExecutionState.blockedTaskIds, taskExecutionState.executableTaskIds],
   );
   const layoutSignature = useMemo(() => buildNodeLayoutSignature(enrichedNodes), [enrichedNodes]);
   const visibleNodeIds = useMemo(() => new Set(enrichedNodes.map((node) => node.id)), [enrichedNodes]);

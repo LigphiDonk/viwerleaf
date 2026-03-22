@@ -7,8 +7,8 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::models::{
-    AgentContext, AgentMessage, AgentProvider, AgentRequest, AgentTaskContext,
-    AgentRunResult, AgentSessionSummary, StreamChunk, UsageInfo,
+    AgentContext, AgentMessage, AgentProvider, AgentRequest, AgentRunResult, AgentSessionSummary,
+    AgentTaskContext, StreamChunk, UsageInfo,
 };
 use crate::services::{profile, provider, sidecar, skill};
 use crate::state::AppState;
@@ -29,8 +29,6 @@ fn serialize_tool_args(args: &serde_json::Value) -> String {
         _ => serde_json::to_string_pretty(args).unwrap_or_default(),
     }
 }
-
-
 
 /// Insert the user message and ensure the session exists in the DB.
 /// Called synchronously from the command handler *before* spawning the
@@ -509,8 +507,6 @@ pub fn list_agent_sessions(state: &AppState) -> Result<Vec<AgentSessionSummary>>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-
-
 fn ensure_session(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -688,9 +684,6 @@ fn sanitize_agent_message_for_display(content: &str) -> String {
         .trim()
         .to_string()
 }
-
-
-
 
 fn strip_tagged_block(content: &str, open_tag: &str, close_tag: &str) -> String {
     let mut output = content.to_string();

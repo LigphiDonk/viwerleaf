@@ -73,7 +73,11 @@ pub fn discover_skills(
     Ok(())
 }
 
-fn sync_skill_source(conn: &Connection, search_dirs: &[PathBuf], source: &str) -> Result<(), String> {
+fn sync_skill_source(
+    conn: &Connection,
+    search_dirs: &[PathBuf],
+    source: &str,
+) -> Result<(), String> {
     prune_skill_source(conn, search_dirs, source)?;
     discover_skills(conn, search_dirs, source)
 }
@@ -135,8 +139,7 @@ pub fn install_skill(conn: &Connection, skill: &SkillManifest) -> Result<(), Str
         serde_json::to_string(&skill.capabilities).unwrap_or_else(|_| "[]".into());
     let domains_json = serde_json::to_string(&skill.domains).unwrap_or_else(|_| "[]".into());
     let keywords_json = serde_json::to_string(&skill.keywords).unwrap_or_else(|_| "[]".into());
-    let upstream_json =
-        serde_json::to_string(&skill.upstream).unwrap_or_else(|_| "{}".into());
+    let upstream_json = serde_json::to_string(&skill.upstream).unwrap_or_else(|_| "{}".into());
     let resource_flags_json =
         serde_json::to_string(&skill.resource_flags).unwrap_or_else(|_| "{}".into());
 
@@ -236,7 +239,8 @@ pub fn load_skill_prompts(
         let Ok(content) = fs::read_to_string(&skill_md) else {
             continue;
         };
-        let Some(parsed) = parse_skill_md(&content, Path::new(&skill.dir_path), &skill.source) else {
+        let Some(parsed) = parse_skill_md(&content, Path::new(&skill.dir_path), &skill.source)
+        else {
             continue;
         };
         sections.push(format!(
@@ -337,7 +341,11 @@ pub fn remove_skill(conn: &Connection, skill_id: &str, delete_files: bool) -> Re
     Ok(())
 }
 
-fn prune_skill_source(conn: &Connection, search_dirs: &[PathBuf], source: &str) -> Result<(), String> {
+fn prune_skill_source(
+    conn: &Connection,
+    search_dirs: &[PathBuf],
+    source: &str,
+) -> Result<(), String> {
     let normalized_roots = search_dirs
         .iter()
         .filter(|root| root.exists())
@@ -373,7 +381,11 @@ fn prune_skill_source(conn: &Connection, search_dirs: &[PathBuf], source: &str) 
     Ok(())
 }
 
-fn parse_skill_md(content: &str, skill_dir: &Path, default_source: &str) -> Option<ParsedSkillFile> {
+fn parse_skill_md(
+    content: &str,
+    skill_dir: &Path,
+    default_source: &str,
+) -> Option<ParsedSkillFile> {
     let body = extract_body(content)?.trim().to_string();
     let frontmatter = extract_frontmatter(content)?;
     let yaml = serde_yaml::from_str::<YamlValue>(&frontmatter).ok()?;
@@ -398,8 +410,7 @@ fn parse_skill_md(content: &str, skill_dir: &Path, default_source: &str) -> Opti
     let summary = yaml_string(&yaml, "summary")
         .or_else(|| yaml_string(&yaml, "description"))
         .unwrap_or_else(|| first_paragraph(&body));
-    let description = yaml_string(&yaml, "description")
-        .unwrap_or_else(|| first_sentence(&summary));
+    let description = yaml_string(&yaml, "description").unwrap_or_else(|| first_sentence(&summary));
     let primary_intent = yaml_string(&yaml, "primaryIntent")
         .or_else(|| yaml_string(&yaml, "primary_intent"))
         .unwrap_or_default();
@@ -460,7 +471,10 @@ fn extract_body(content: &str) -> Option<String> {
     Some(normalized[4 + closing_index + 5..].trim().to_string())
 }
 
-fn resolve_enabled_skills(conn: &Connection, skill_ids: &[String]) -> Result<Vec<SkillManifest>, String> {
+fn resolve_enabled_skills(
+    conn: &Connection,
+    skill_ids: &[String],
+) -> Result<Vec<SkillManifest>, String> {
     let all_skills = list_skills(conn)?;
     let mut requested = if skill_ids.is_empty() {
         all_skills
@@ -480,7 +494,10 @@ fn resolve_enabled_skills(conn: &Connection, skill_ids: &[String]) -> Result<Vec
         .collect())
 }
 
-fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentTaskContext>) -> String {
+fn build_project_stage_context(
+    project_root: &Path,
+    task_context: Option<&AgentTaskContext>,
+) -> String {
     let brief_path = project_root
         .join(".pipeline")
         .join("docs")
@@ -495,8 +512,14 @@ fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentT
 
     if let Ok(raw) = fs::read_to_string(brief_path) {
         if let Ok(value) = serde_json::from_str::<JsonValue>(&raw) {
-            let topic = value.get("topic").and_then(|value| value.as_str()).unwrap_or("");
-            let goal = value.get("goal").and_then(|value| value.as_str()).unwrap_or("");
+            let topic = value
+                .get("topic")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let goal = value
+                .get("goal")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
             let system_prompt = value
                 .get("systemPrompt")
                 .and_then(|value| value.as_str())
@@ -527,7 +550,10 @@ fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentT
             if !working_memory.is_empty() {
                 lines.push(format!("workingMemory: {working_memory}"));
             }
-            if let Some(rules) = value.get("interactionRules").and_then(|value| value.as_array()) {
+            if let Some(rules) = value
+                .get("interactionRules")
+                .and_then(|value| value.as_array())
+            {
                 let rule_lines = rules
                     .iter()
                     .filter_map(|rule| rule.as_str())
@@ -547,15 +573,19 @@ fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentT
                 let current_stage_tasks = if current_stage_value.is_empty() {
                     Vec::new()
                 } else {
-                    tasks.iter()
+                    tasks
+                        .iter()
                         .filter(|task| {
                             task.get("stage")
                                 .and_then(|value| value.as_str())
                                 .map(|stage| stage == current_stage_value)
                                 .unwrap_or(false)
-                                && task.get("status")
+                                && task
+                                    .get("status")
                                     .and_then(|value| value.as_str())
-                                    .map(|status| matches!(status, "" | "pending" | "in-progress" | "review"))
+                                    .map(|status| {
+                                        matches!(status, "" | "pending" | "in-progress" | "review")
+                                    })
                                     .unwrap_or(true)
                         })
                         .filter_map(|task| task.get("title").and_then(|value| value.as_str()))
@@ -564,7 +594,10 @@ fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentT
                         .collect::<Vec<_>>()
                 };
                 if !current_stage_tasks.is_empty() {
-                    lines.push(format!("currentStageOpenTasks: {}", current_stage_tasks.join(" | ")));
+                    lines.push(format!(
+                        "currentStageOpenTasks: {}",
+                        current_stage_tasks.join(" | ")
+                    ));
                 }
                 if let Some(next_task) = tasks.iter().find(|task| {
                     task.get("status")
@@ -605,25 +638,43 @@ fn build_project_stage_context(project_root: &Path, task_context: Option<&AgentT
         lines.push(format!("activeTaskStage: {}", task.stage));
         lines.push(format!("activeTaskTitle: {}", task.title));
         if !task.description.trim().is_empty() {
-            lines.push(format!("activeTaskDescription: {}", task.description.trim()));
+            lines.push(format!(
+                "activeTaskDescription: {}",
+                task.description.trim()
+            ));
         }
         if !task.next_action_prompt.trim().is_empty() {
-            lines.push(format!("activeTaskNextAction: {}", task.next_action_prompt.trim()));
+            lines.push(format!(
+                "activeTaskNextAction: {}",
+                task.next_action_prompt.trim()
+            ));
         }
         if !task.task_prompt.trim().is_empty() {
             lines.push(format!("activeTaskPrompt: {}", task.task_prompt.trim()));
         }
         if !task.context_notes.trim().is_empty() {
-            lines.push(format!("activeTaskContextNotes: {}", task.context_notes.trim()));
+            lines.push(format!(
+                "activeTaskContextNotes: {}",
+                task.context_notes.trim()
+            ));
         }
         if !task.inputs_needed.is_empty() {
-            lines.push(format!("activeTaskInputs: {}", task.inputs_needed.join(" | ")));
+            lines.push(format!(
+                "activeTaskInputs: {}",
+                task.inputs_needed.join(" | ")
+            ));
         }
         if !task.suggested_skills.is_empty() {
-            lines.push(format!("activeTaskSkills: {}", task.suggested_skills.join(", ")));
+            lines.push(format!(
+                "activeTaskSkills: {}",
+                task.suggested_skills.join(", ")
+            ));
         }
         if !task.artifact_paths.is_empty() {
-            lines.push(format!("activeTaskArtifacts: {}", task.artifact_paths.join(", ")));
+            lines.push(format!(
+                "activeTaskArtifacts: {}",
+                task.artifact_paths.join(", ")
+            ));
         }
         lines.push("taskUpdateProtocol: When the active task or project plan materially changes, append a fenced code block with language `viewerleaf_task_update`. Use JSON with keys `reason`, optional `confidence`, optional `workingMemory`, and either legacy `taskId` + `changes` or `operations`. `operations` is an array of plan actions: `{ \"type\": \"update\", \"taskId\": \"...\", \"changes\": { ... } }`, `{ \"type\": \"add\", \"task\": { \"title\": \"...\", \"stage\": \"survey|ideation|experiment|publication|promotion\", optional \"description\", \"priority\", \"dependencies\", \"taskType\", \"inputsNeeded\", \"suggestedSkills\", \"nextActionPrompt\" } }`, or `{ \"type\": \"remove\", \"taskId\": \"...\" }`. Prefer updating only the active task unless project evidence clearly requires replanning. Do not remove completed tasks.".into());
     } else {
@@ -744,9 +795,7 @@ fn yaml_string_at_path(root: &YamlValue, path: &[&str]) -> Option<String> {
 }
 
 fn yaml_vec(root: &YamlValue, key: &str) -> Vec<String> {
-    root.get(key)
-        .map(yaml_value_to_vec)
-        .unwrap_or_default()
+    root.get(key).map(yaml_value_to_vec).unwrap_or_default()
 }
 
 fn yaml_vec_any(root: &YamlValue, path: &[&str]) -> Vec<String> {
@@ -879,11 +928,14 @@ metadata:
     #[test]
     fn render_prompt_bundle_includes_stage_context_and_skill_body() {
         let root = temp_dir();
-        fs::write(root.join("AGENTS.md"), "# AGENTS\nproject instructions").expect("failed to write agents");
+        fs::write(root.join("AGENTS.md"), "# AGENTS\nproject instructions")
+            .expect("failed to write agents");
         fs::create_dir_all(root.join(".pipeline").join("docs")).expect("failed to create docs");
         fs::create_dir_all(root.join(".pipeline").join("tasks")).expect("failed to create tasks");
         fs::write(
-            root.join(".pipeline").join("docs").join("research_brief.json"),
+            root.join(".pipeline")
+                .join("docs")
+                .join("research_brief.json"),
             r#"{"topic":"A","goal":"B","pipeline":{"currentStage":"survey"}}"#,
         )
         .expect("failed to write brief");
@@ -936,14 +988,20 @@ summary: Summary
         let root = temp_dir();
         let active_skill = root.join("active").join("skill-a");
         fs::create_dir_all(&active_skill).expect("failed to create active skill dir");
-        fs::write(active_skill.join("SKILL.md"), "---\nid: skill-a\nname: skill-a\n---\n")
-            .expect("failed to write active skill");
+        fs::write(
+            active_skill.join("SKILL.md"),
+            "---\nid: skill-a\nname: skill-a\n---\n",
+        )
+        .expect("failed to write active skill");
 
         let stale_root = temp_dir();
         let stale_skill = stale_root.join("skill-b");
         fs::create_dir_all(&stale_skill).expect("failed to create stale skill dir");
-        fs::write(stale_skill.join("SKILL.md"), "---\nid: skill-b\nname: skill-b\n---\n")
-            .expect("failed to write stale skill");
+        fs::write(
+            stale_skill.join("SKILL.md"),
+            "---\nid: skill-b\nname: skill-b\n---\n",
+        )
+        .expect("failed to write stale skill");
 
         conn.execute(
             "INSERT INTO skills (

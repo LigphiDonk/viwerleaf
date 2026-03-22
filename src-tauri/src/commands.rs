@@ -7,13 +7,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::desktop_menu;
 use crate::models::{
     AgentMessage, AgentRunResult, AgentSessionSummary, AgentTaskContext,
-    ApplyResearchTaskSuggestionRequest, AssetResource, CliAgentStatus,
-    FigureBriefDraft, GeneratedAsset, ProfileConfig, ProjectConfig, ProjectFile, ProviderConfig,
-    SkillManifest, TerminalSessionInfo, TestResult, UsageRecord, WorkspaceSnapshot,
+    ApplyResearchTaskSuggestionRequest, AssetResource, CliAgentStatus, FigureBriefDraft,
+    GeneratedAsset, LiteratureCandidate, LiteratureItem, LiteratureSearchResult, ProfileConfig,
+    ProjectConfig, ProjectFile, ProviderConfig, SkillManifest, TerminalSessionInfo, TestResult,
+    UsageRecord, WorkspaceSnapshot,
 };
 use crate::services::{
-    agent, compile, figure, profile, project, provider, research, sidecar, skill, sync, terminal,
-    worker,
+    agent, compile, figure, literature, profile, project, provider, research, sidecar, skill, sync,
+    terminal, worker,
 };
 use crate::state::AppState;
 
@@ -97,7 +98,7 @@ pub async fn ensure_research_scaffold(
             Path::new(&root_path),
             start_stage.as_deref(),
         )
-            .map_err(|err| err.to_string())?;
+        .map_err(|err| err.to_string())?;
         let conn = state.db.lock().map_err(|err| err.to_string())?;
         skill::refresh_skill_registry(&conn, &state.app_root, Some(Path::new(&root_path)))
             .map_err(|err| err.to_string())?;
@@ -313,7 +314,8 @@ pub async fn apply_research_task_suggestion(
         if root_path.trim().is_empty() {
             return Err("no active project".into());
         }
-        research::apply_task_suggestion(Path::new(&root_path), &request).map_err(|err| err.to_string())?;
+        research::apply_task_suggestion(Path::new(&root_path), &request)
+            .map_err(|err| err.to_string())?;
         project::load_project_snapshot(&state).map_err(|err| err.to_string())
     })
     .await
@@ -361,7 +363,8 @@ pub fn list_skills(state: State<'_, AppState>) -> Result<Vec<SkillManifest>, Str
         .clone();
     let conn = state.db.lock().map_err(|err| err.to_string())?;
     let project_root = (!root_path.trim().is_empty()).then(|| Path::new(&root_path));
-    skill::refresh_skill_registry(&conn, &state.app_root, project_root).map_err(|err| err.to_string())?;
+    skill::refresh_skill_registry(&conn, &state.app_root, project_root)
+        .map_err(|err| err.to_string())?;
     skill::list_skills(&conn)
 }
 
@@ -737,8 +740,8 @@ pub fn remove_skill(
 pub async fn detect_cli_agents(app_handle: AppHandle) -> Result<Vec<CliAgentStatus>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        let output = sidecar::run_sidecar(&state, "detect-cli", "")
-            .map_err(|err| err.to_string())?;
+        let output =
+            sidecar::run_sidecar(&state, "detect-cli", "").map_err(|err| err.to_string())?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
@@ -794,4 +797,252 @@ pub async fn save_file_binary(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+// ── Literature Management Commands ──
+
+#[tauri::command]
+pub fn list_literature(state: State<'_, AppState>) -> Result<Vec<LiteratureItem>, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::list_items(&conn)
+}
+
+#[tauri::command]
+pub fn list_literature_inbox(
+    state: State<'_, AppState>,
+) -> Result<Vec<LiteratureCandidate>, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::list_inbox(&conn)
+}
+
+#[tauri::command]
+pub fn list_literature_attachments(
+    state: State<'_, AppState>,
+    literature_id: String,
+) -> Result<Vec<crate::models::LiteratureAttachment>, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::list_attachments(&conn, &literature_id)
+}
+
+#[tauri::command]
+pub fn add_literature(state: State<'_, AppState>, item: LiteratureItem) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::add_item(&conn, &item)
+}
+
+#[tauri::command]
+pub async fn add_literature_with_pdf(
+    app_handle: AppHandle,
+    item: LiteratureItem,
+    source_path: String,
+) -> Result<LiteratureItem, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+
+        let mut conn = state.db.lock().map_err(|err| err.to_string())?;
+        literature::add_item_with_pdf(
+            &mut conn,
+            &item,
+            Path::new(&source_path),
+            Path::new(&root_path),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn delete_literature(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::delete_item(&conn, &id)
+}
+
+#[tauri::command]
+pub fn add_literature_candidate(
+    state: State<'_, AppState>,
+    candidate: LiteratureCandidate,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::add_to_inbox(&conn, &candidate)
+}
+
+#[tauri::command]
+pub fn approve_literature_candidate(
+    state: State<'_, AppState>,
+    inbox_id: String,
+) -> Result<LiteratureItem, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::approve_candidate(&conn, &inbox_id)
+}
+
+#[tauri::command]
+pub fn update_literature_notes(
+    state: State<'_, AppState>,
+    id: String,
+    notes: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::update_notes(&conn, &id, &notes)
+}
+
+#[tauri::command]
+pub fn search_literature(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<LiteratureSearchResult>, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::search(&conn, &query)
+}
+
+#[tauri::command]
+pub fn link_literature_to_task(
+    state: State<'_, AppState>,
+    literature_id: String,
+    task_id: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::link_to_task(&conn, &literature_id, &task_id)
+}
+
+#[tauri::command]
+pub async fn import_literature_pdf(
+    app_handle: AppHandle,
+    literature_id: String,
+    source_path: String,
+) -> Result<crate::models::LiteratureAttachment, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+        let conn = state.db.lock().map_err(|err| err.to_string())?;
+        literature::import_pdf(
+            &conn,
+            &literature_id,
+            Path::new(&source_path),
+            Path::new(&root_path),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn ingest_literature(
+    app_handle: AppHandle,
+    literature_id: String,
+    pdf_path: String,
+    title: String,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+
+        let payload = serde_json::json!({
+            "literatureId": literature_id,
+            "pdfPath": pdf_path,
+            "projectRoot": root_path,
+            "title": title,
+        });
+
+        let output = crate::services::sidecar::run_sidecar(
+            &state,
+            "ingest-literature",
+            &payload.to_string(),
+        )
+        .map_err(|err| format!("ingestion sidecar failed: {err}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("ingestion failed: {stderr}"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let result: serde_json::Value = serde_json::from_str(&stdout)
+            .map_err(|err| format!("invalid ingestion output: {err}"))?;
+
+        let conn = state.db.lock().map_err(|err| err.to_string())?;
+        if let Some(chunks) = result.get("chunks").and_then(|v| v.as_array()) {
+            let chunk_tuples: Vec<(i32, String)> = chunks
+                .iter()
+                .filter_map(|c| {
+                    let idx = c.get("chunkIndex")?.as_i64()? as i32;
+                    let content = c.get("content")?.as_str()?.to_string();
+                    Some((idx, content))
+                })
+                .collect();
+
+            literature::save_chunks(&conn, &literature_id, &chunk_tuples)?;
+        }
+
+        let ocr_status = result
+            .get("ocrStatus")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none");
+        let attachments = literature::list_attachments(&conn, &literature_id)?;
+        if let Some(pdf_attachment) = attachments
+            .iter()
+            .find(|attachment| attachment.kind == "pdf")
+        {
+            literature::update_attachment_ocr_status(&conn, &pdf_attachment.id, ocr_status)?;
+        }
+
+        if let Some(markdown_path) = result.get("markdownPath").and_then(|v| v.as_str()) {
+            let attachment_source = if ocr_status == "done" {
+                "ocr"
+            } else {
+                "manual"
+            };
+            literature::upsert_attachment(
+                &conn,
+                &literature_id,
+                "markdown",
+                markdown_path,
+                attachment_source,
+                ocr_status,
+            )?;
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn export_paper_bank(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::export_paper_bank(&conn)
+}
+
+#[tauri::command]
+pub fn count_literature_for_task(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<i64, String> {
+    let conn = state.db.lock().map_err(|err| err.to_string())?;
+    literature::count_for_task(&conn, &task_id)
 }

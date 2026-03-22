@@ -47,12 +47,8 @@ pub fn run() {
                 .map(|root| load_project_config(root))
                 .unwrap_or_else(empty_project_config);
 
-            services::skill::refresh_skill_registry(
-                &conn,
-                &app_root,
-                workspace_root.as_deref(),
-            )
-            .expect("failed to refresh skills");
+            services::skill::refresh_skill_registry(&conn, &app_root, workspace_root.as_deref())
+                .expect("failed to refresh skills");
 
             let last_compile = workspace_root
                 .as_ref()
@@ -126,7 +122,23 @@ pub fn run() {
             commands::detect_cli_agents,
             commands::create_workspace_dir,
             commands::read_file_binary,
-            commands::save_file_binary
+            commands::save_file_binary,
+            // Literature management
+            commands::list_literature,
+            commands::list_literature_inbox,
+            commands::list_literature_attachments,
+            commands::add_literature,
+            commands::add_literature_with_pdf,
+            commands::add_literature_candidate,
+            commands::delete_literature,
+            commands::approve_literature_candidate,
+            commands::update_literature_notes,
+            commands::search_literature,
+            commands::link_literature_to_task,
+            commands::import_literature_pdf,
+            commands::ingest_literature,
+            commands::export_paper_bank,
+            commands::count_literature_for_task
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");

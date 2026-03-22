@@ -9,9 +9,8 @@ use walkdir::WalkDir;
 
 use crate::models::{
     ApplyResearchTaskSuggestionRequest, ResearchBootstrapState, ResearchCanvasSnapshot,
-    ResearchStageSummary, ResearchTask, ResearchTaskDraft, ResearchTaskPlanOperation,
-    ResearchTaskUpdateChanges,
-    ResearchTaskCounts,
+    ResearchStageSummary, ResearchTask, ResearchTaskCounts, ResearchTaskDraft,
+    ResearchTaskPlanOperation, ResearchTaskUpdateChanges,
 };
 
 const STAGE_ORDER: [&str; 5] = [
@@ -154,7 +153,10 @@ fn status_rank(status: &str) -> usize {
 }
 
 fn task_is_open(task: &ResearchTask) -> bool {
-    matches!(task.status.as_str(), "pending" | "in-progress" | "review" | "")
+    matches!(
+        task.status.as_str(),
+        "pending" | "in-progress" | "review" | ""
+    )
 }
 
 fn task_is_done(task: &ResearchTask) -> bool {
@@ -162,7 +164,9 @@ fn task_is_done(task: &ResearchTask) -> bool {
 }
 
 fn dependency_satisfied(task: &ResearchTask, done_ids: &BTreeSet<String>) -> bool {
-    task.dependencies.iter().all(|dependency| done_ids.contains(dependency))
+    task.dependencies
+        .iter()
+        .all(|dependency| done_ids.contains(dependency))
 }
 
 fn normalize_stage_list(values: Option<&[String]>) -> Vec<String> {
@@ -236,7 +240,10 @@ fn copy_dir_contents(source: &Path, target: &Path) -> Result<()> {
     }
     fs::create_dir_all(target)?;
 
-    for entry in WalkDir::new(source).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(source)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         let relative = match entry.path().strip_prefix(source) {
             Ok(path) => path,
             Err(_) => continue,
@@ -415,17 +422,36 @@ fn dedup_strings(values: &[String]) -> Vec<String> {
     out
 }
 
-fn apply_task_changes(task: &mut ResearchTask, changes: &ResearchTaskUpdateChanges, known_task_ids: &BTreeSet<String>) {
-    if let Some(title) = changes.title.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+fn apply_task_changes(
+    task: &mut ResearchTask,
+    changes: &ResearchTaskUpdateChanges,
+    known_task_ids: &BTreeSet<String>,
+) {
+    if let Some(title) = changes
+        .title
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         task.title = title.to_string();
     }
-    if let Some(status) = changes.status.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+    if let Some(status) = changes
+        .status
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         task.status = status.to_string();
     }
     if let Some(stage) = changes.stage.as_deref() {
         task.stage = normalize_stage(Some(stage));
     }
-    if let Some(priority) = changes.priority.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+    if let Some(priority) = changes
+        .priority
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         task.priority = priority.to_string();
     }
     if let Some(dependencies) = changes.dependencies.as_ref() {
@@ -434,10 +460,20 @@ fn apply_task_changes(task: &mut ResearchTask, changes: &ResearchTaskUpdateChang
             .filter(|dependency| dependency != &task.id && known_task_ids.contains(dependency))
             .collect();
     }
-    if let Some(task_type) = changes.task_type.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+    if let Some(task_type) = changes
+        .task_type
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         task.task_type = task_type.to_string();
     }
-    if let Some(description) = changes.description.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+    if let Some(description) = changes
+        .description
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
         task.description = description.to_string();
     }
     if let Some(inputs_needed) = changes.inputs_needed.as_ref() {
@@ -502,7 +538,10 @@ fn build_custom_task(tasks: &[ResearchTask], draft: &ResearchTaskDraft) -> Resul
     }
 
     let stage = normalize_stage(Some(&draft.stage));
-    let known_task_ids = tasks.iter().map(|task| task.id.clone()).collect::<BTreeSet<_>>();
+    let known_task_ids = tasks
+        .iter()
+        .map(|task| task.id.clone())
+        .collect::<BTreeSet<_>>();
     let id = draft
         .id
         .as_ref()
@@ -518,12 +557,32 @@ fn build_custom_task(tasks: &[ResearchTask], draft: &ResearchTaskDraft) -> Resul
     Ok(ResearchTask {
         id,
         title: title.to_string(),
-        description: draft.description.as_deref().unwrap_or("").trim().to_string(),
-        status: draft.status.as_deref().unwrap_or("pending").trim().to_string(),
+        description: draft
+            .description
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        status: draft
+            .status
+            .as_deref()
+            .unwrap_or("pending")
+            .trim()
+            .to_string(),
         stage,
-        priority: draft.priority.as_deref().unwrap_or("medium").trim().to_string(),
+        priority: draft
+            .priority
+            .as_deref()
+            .unwrap_or("medium")
+            .trim()
+            .to_string(),
         dependencies,
-        task_type: draft.task_type.as_deref().unwrap_or("custom").trim().to_string(),
+        task_type: draft
+            .task_type
+            .as_deref()
+            .unwrap_or("custom")
+            .trim()
+            .to_string(),
         inputs_needed: dedup_strings(draft.inputs_needed.as_deref().unwrap_or(&[])),
         suggested_skills: dedup_strings(draft.suggested_skills.as_deref().unwrap_or(&[])),
         next_action_prompt: draft
@@ -534,10 +593,25 @@ fn build_custom_task(tasks: &[ResearchTask], draft: &ResearchTaskDraft) -> Resul
             .unwrap_or(title)
             .to_string(),
         artifact_paths: dedup_strings(draft.artifact_paths.as_deref().unwrap_or(&[])),
-        task_prompt: draft.task_prompt.as_deref().unwrap_or("").trim().to_string(),
-        context_notes: draft.context_notes.as_deref().unwrap_or("").trim().to_string(),
+        task_prompt: draft
+            .task_prompt
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        context_notes: draft
+            .context_notes
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
         last_updated_at: iso_now(),
-        agent_entry_label: draft.agent_entry_label.as_deref().unwrap_or("").trim().to_string(),
+        agent_entry_label: draft
+            .agent_entry_label
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
     })
 }
 
@@ -567,12 +641,24 @@ fn default_tasks(start_stage: &str) -> Vec<ResearchTask> {
             status: "pending".into(),
             stage: stage.into(),
             priority: blueprint.priority.into(),
-            dependencies: blueprint.dependencies.iter().map(|value| (*value).to_string()).collect(),
+            dependencies: blueprint
+                .dependencies
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             task_type: task_type.into(),
-            inputs_needed: blueprint.inputs_needed.iter().map(|value| (*value).to_string()).collect(),
+            inputs_needed: blueprint
+                .inputs_needed
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             suggested_skills,
             next_action_prompt,
-            artifact_paths: blueprint.artifact_paths.iter().map(|value| (*value).to_string()).collect(),
+            artifact_paths: blueprint
+                .artifact_paths
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             task_prompt,
             context_notes: String::new(),
             last_updated_at: String::new(),
@@ -927,7 +1013,11 @@ pub fn project_skill_roots(root: &Path) -> Vec<PathBuf> {
     ]
 }
 
-pub fn ensure_research_scaffold(app_root: &Path, root: &Path, start_stage: Option<&str>) -> Result<()> {
+pub fn ensure_research_scaffold(
+    app_root: &Path,
+    root: &Path,
+    start_stage: Option<&str>,
+) -> Result<()> {
     let start_stage = normalize_stage(start_stage);
 
     fs::create_dir_all(survey_root(root).join("references"))?;
@@ -1016,12 +1106,21 @@ fn set_pipeline_stage_state(
     current_stage: &str,
     initialized_stages: &[String],
 ) {
-    if !brief_json.get("pipeline").map(Value::is_object).unwrap_or(false) {
+    if !brief_json
+        .get("pipeline")
+        .map(Value::is_object)
+        .unwrap_or(false)
+    {
         brief_json["pipeline"] = json!({});
     }
     brief_json["pipeline"]["currentStage"] = Value::String(current_stage.to_string());
-    brief_json["pipeline"]["initializedStages"] =
-        Value::Array(initialized_stages.iter().cloned().map(Value::String).collect());
+    brief_json["pipeline"]["initializedStages"] = Value::Array(
+        initialized_stages
+            .iter()
+            .cloned()
+            .map(Value::String)
+            .collect(),
+    );
 }
 
 pub fn initialize_research_stage(root: &Path, stage: &str) -> Result<()> {
@@ -1068,7 +1167,10 @@ pub fn initialize_research_stage(root: &Path, stage: &str) -> Result<()> {
             .as_deref(),
     );
     let mut next_initialized = initialized_stages;
-    if !next_initialized.iter().any(|value| value == &normalized_stage) {
+    if !next_initialized
+        .iter()
+        .any(|value| value == &normalized_stage)
+    {
         next_initialized.push(normalized_stage.clone());
     }
     next_initialized.sort_by_key(|value| stage_index(value));
@@ -1084,10 +1186,12 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
     let tasks_path = pipeline_root(root).join("tasks").join("tasks.json");
     let has_instance = root.join("instance.json").exists();
     let has_templates = root.join("AGENTS.md").exists() && root.join("CLAUDE.md").exists();
-    let has_skill_views = root.join(".agents").join("skills").exists() && root.join(".claude").join("skills").exists();
+    let has_skill_views = root.join(".agents").join("skills").exists()
+        && root.join(".claude").join("skills").exists();
     let has_brief = brief_path.exists();
     let has_tasks = tasks_path.exists();
-    let has_any_scaffold = has_instance || has_templates || has_skill_views || has_brief || has_tasks;
+    let has_any_scaffold =
+        has_instance || has_templates || has_skill_views || has_brief || has_tasks;
 
     let bootstrap = {
         let (status, message) = if !has_any_scaffold {
@@ -1191,14 +1295,23 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
     });
 
     let mut artifact_paths = HashMap::new();
-    artifact_paths.insert("survey".into(), collect_files_under(root, &survey_root(root)));
-    artifact_paths.insert("ideation".into(), collect_files_under(root, &ideation_root(root)));
+    artifact_paths.insert(
+        "survey".into(),
+        collect_files_under(root, &survey_root(root)),
+    );
+    artifact_paths.insert(
+        "ideation".into(),
+        collect_files_under(root, &ideation_root(root)),
+    );
     artifact_paths.insert(
         "experiment".into(),
         collect_files_under(root, &experiment_root(root)),
     );
     artifact_paths.insert("publication".into(), collect_publication_files(root));
-    artifact_paths.insert("promotion".into(), collect_files_under(root, &promotion_root(root)));
+    artifact_paths.insert(
+        "promotion".into(),
+        collect_files_under(root, &promotion_root(root)),
+    );
 
     let done_ids = tasks
         .iter()
@@ -1210,13 +1323,10 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
         .iter()
         .find(|task| task.status == "in-progress")
         .cloned()
+        .or_else(|| tasks.iter().find(|task| task.status == "review").cloned())
         .or_else(|| {
-            tasks.iter()
-                .find(|task| task.status == "review")
-                .cloned()
-        })
-        .or_else(|| {
-            tasks.iter()
+            tasks
+                .iter()
                 .find(|task| task.status == "pending" && dependency_satisfied(task, &done_ids))
                 .cloned()
         })
@@ -1232,7 +1342,8 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
                 .map(|stage| (*stage).to_string())
         })
         .or_else(|| {
-            brief.as_ref()
+            brief
+                .as_ref()
                 .and_then(|(_, meta)| meta.pipeline.as_ref())
                 .and_then(|pipeline| pipeline.current_stage.as_deref())
                 .map(Some)
@@ -1276,16 +1387,13 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
             if suggested_skills.is_empty() {
                 suggested_skills = bundle_skill_ids.clone();
             }
-            let stage_artifacts = artifact_paths
-                .get(*stage)
-                .cloned()
-                .unwrap_or_default();
+            let stage_artifacts = artifact_paths.get(*stage).cloned().unwrap_or_default();
             let next_task_id = stage_tasks
                 .iter()
                 .find(|task| task_is_open(task))
                 .map(|task| task.id.clone());
-            let is_initialized = initialized_stages.iter().any(|value| value == *stage)
-                || !stage_tasks.is_empty();
+            let is_initialized =
+                initialized_stages.iter().any(|value| value == *stage) || !stage_tasks.is_empty();
             let stage_status = if counts.total > 0 && counts.done == counts.total {
                 "complete"
             } else if *stage == current_stage {
@@ -1347,13 +1455,22 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
     })
 }
 
-pub fn apply_task_suggestion(root: &Path, request: &ApplyResearchTaskSuggestionRequest) -> Result<()> {
+pub fn apply_task_suggestion(
+    root: &Path,
+    request: &ApplyResearchTaskSuggestionRequest,
+) -> Result<()> {
     let tasks_path = pipeline_root(root).join("tasks").join("tasks.json");
     let brief_path = pipeline_root(root).join("docs").join("research_brief.json");
     let mut tasks = read_tasks(&tasks_path);
-    let operations = if let Some(operations) = request.operations.as_ref().filter(|items| !items.is_empty()) {
+    let operations = if let Some(operations) = request
+        .operations
+        .as_ref()
+        .filter(|items| !items.is_empty())
+    {
         operations.clone()
-    } else if let (Some(task_id), Some(changes)) = (request.task_id.as_ref(), request.changes.as_ref()) {
+    } else if let (Some(task_id), Some(changes)) =
+        (request.task_id.as_ref(), request.changes.as_ref())
+    {
         vec![ResearchTaskPlanOperation::Update {
             task_id: task_id.clone(),
             changes: changes.clone(),
@@ -1369,7 +1486,10 @@ pub fn apply_task_suggestion(root: &Path, request: &ApplyResearchTaskSuggestionR
     for operation in operations {
         match operation {
             ResearchTaskPlanOperation::Update { task_id, changes } => {
-                let known_task_ids = tasks.iter().map(|task| task.id.clone()).collect::<BTreeSet<_>>();
+                let known_task_ids = tasks
+                    .iter()
+                    .map(|task| task.id.clone())
+                    .collect::<BTreeSet<_>>();
                 let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
                     bail!("task not found: {task_id}");
                 };
@@ -1389,7 +1509,8 @@ pub fn apply_task_suggestion(root: &Path, request: &ApplyResearchTaskSuggestionR
                 } else {
                     tasks.remove(index);
                     for task in &mut tasks {
-                        task.dependencies.retain(|dependency| dependency != &task_id);
+                        task.dependencies
+                            .retain(|dependency| dependency != &task_id);
                     }
                 }
             }
@@ -1525,7 +1646,9 @@ mod tests {
                         description: Some("Verify target venue boundaries.".into()),
                         priority: Some("high".into()),
                         dependencies: Some(vec!["survey-1".into()]),
-                        next_action_prompt: Some("Review venue CFP and collect constraints.".into()),
+                        next_action_prompt: Some(
+                            "Review venue CFP and collect constraints.".into(),
+                        ),
                         ..ResearchTaskDraft::default()
                     },
                     after_task_id: None,

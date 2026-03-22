@@ -16,7 +16,7 @@ export type DrawerTab =
   | "collab";
 export type AppLocale = "zh-CN" | "en-US";
 export type WorkspacePaneMode = "files" | "outline";
-export type WorkspaceSurface = "research" | "writing";
+export type WorkspaceSurface = "research" | "writing" | "literature";
 export type ProjectFileType =
   | "latex"
   | "bib"
@@ -608,4 +608,67 @@ export interface AcademicSkill {
   enabled: boolean;
   action?: SkillAction;
   isCustom?: boolean;
+}
+
+/* ── Literature Management ── */
+
+export type LiteratureOcrStatus = "none" | "pending" | "done" | "failed";
+export type LiteratureSyncDirection = "pull" | "push" | "synced";
+export type LiteratureDedupStatus = "pending" | "duplicate" | "unique";
+
+export interface LiteratureItem {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number;
+  journal: string;
+  doi: string;
+  abstract: string;
+  tags: string[];
+  notes: string;
+  dedupHash: string;
+  linkedTaskIds: string[];
+  addedAt: string;
+  updatedAt: string;
+}
+
+export interface LiteratureAttachment {
+  id: string;
+  literatureId: string;
+  kind: "pdf" | "markdown" | "fulltext";
+  filePath: string;
+  ocrStatus: LiteratureOcrStatus;
+  source: "manual" | "zotero" | "ocr";
+  createdAt: string;
+}
+
+export interface LiteratureSyncState {
+  literatureId: string;
+  zoteroLibrary: string;
+  zoteroKey: string;
+  zoteroVersion: number;
+  syncDirection: LiteratureSyncDirection;
+  lastSyncedAt: string;
+}
+
+export interface LiteratureCandidate {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number;
+  doi: string;
+  abstract: string;
+  sourceContext: string;
+  pdfPath: string;
+  dedupStatus: LiteratureDedupStatus;
+  matchedItemId: string;
+  createdAt: string;
+}
+
+export interface LiteratureSearchResult {
+  item: LiteratureItem;
+  matchField: "title" | "authors" | "abstract" | "chunk" | "notes";
+  snippet: string;
+  chunkIndex?: number;
+  rank: number;
 }

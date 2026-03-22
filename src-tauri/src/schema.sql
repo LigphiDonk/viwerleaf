@@ -97,3 +97,69 @@ CREATE TABLE IF NOT EXISTS assets (
     metadata_json   TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ── Literature Management ──
+
+CREATE TABLE IF NOT EXISTS literature_items (
+    id             TEXT PRIMARY KEY,
+    title          TEXT NOT NULL,
+    authors_json   TEXT NOT NULL DEFAULT '[]',
+    year           INTEGER NOT NULL DEFAULT 0,
+    journal        TEXT NOT NULL DEFAULT '',
+    doi            TEXT NOT NULL DEFAULT '',
+    abstract       TEXT NOT NULL DEFAULT '',
+    tags_json      TEXT NOT NULL DEFAULT '[]',
+    notes          TEXT NOT NULL DEFAULT '',
+    dedup_hash     TEXT NOT NULL DEFAULT '',
+    linked_task_ids_json TEXT NOT NULL DEFAULT '[]',
+    added_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS literature_attachments (
+    id              TEXT PRIMARY KEY,
+    literature_id   TEXT NOT NULL,
+    kind            TEXT NOT NULL DEFAULT 'pdf' CHECK(kind IN ('pdf','markdown','fulltext')),
+    file_path       TEXT NOT NULL DEFAULT '',
+    ocr_status      TEXT NOT NULL DEFAULT 'none' CHECK(ocr_status IN ('none','pending','done','failed')),
+    source          TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','zotero','ocr')),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (literature_id) REFERENCES literature_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS literature_chunks (
+    id              TEXT PRIMARY KEY,
+    literature_id   TEXT NOT NULL,
+    chunk_index     INTEGER NOT NULL DEFAULT 0,
+    content         TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (literature_id) REFERENCES literature_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS literature_sync (
+    literature_id   TEXT PRIMARY KEY,
+    zotero_library  TEXT NOT NULL DEFAULT '',
+    zotero_key      TEXT NOT NULL DEFAULT '',
+    zotero_version  INTEGER NOT NULL DEFAULT 0,
+    sync_direction  TEXT NOT NULL DEFAULT 'pull' CHECK(sync_direction IN ('pull','push','synced')),
+    last_synced_at  TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (literature_id) REFERENCES literature_items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS literature_inbox (
+    id             TEXT PRIMARY KEY,
+    title          TEXT NOT NULL DEFAULT '',
+    authors_json   TEXT NOT NULL DEFAULT '[]',
+    year           INTEGER NOT NULL DEFAULT 0,
+    doi            TEXT NOT NULL DEFAULT '',
+    abstract       TEXT NOT NULL DEFAULT '',
+    source_context TEXT NOT NULL DEFAULT '',
+    pdf_path       TEXT NOT NULL DEFAULT '',
+    dedup_status   TEXT NOT NULL DEFAULT 'pending' CHECK(dedup_status IN ('pending','duplicate','unique')),
+    matched_item_id TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS literature_fts USING fts5(
+    title, authors, abstract, chunk_content, notes,
+    tokenize='unicode61'
+);
