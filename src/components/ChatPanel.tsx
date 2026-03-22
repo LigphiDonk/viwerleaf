@@ -336,6 +336,7 @@ function parseStreamBlocks(raw: string): StreamBlock {
 }
 
 const TASK_UPDATE_BLOCK_RE = /```viewerleaf_task_update\s*([\s\S]*?)```/gi;
+type SuggestionOperation = NonNullable<TaskUpdateSuggestion["operations"]>[number];
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -375,9 +376,9 @@ function sanitizeTaskPlanOperations(value: unknown): NonNullable<TaskUpdateSugge
     return [];
   }
 
-  return value.flatMap((candidate) => {
+  return value.reduce<SuggestionOperation[]>((operations, candidate) => {
     if (!candidate || typeof candidate !== "object") {
-      return [];
+      return operations;
     }
     const record = candidate as Record<string, unknown>;
     const type = typeof record.type === "string" ? record.type.trim() : "";
@@ -388,22 +389,31 @@ function sanitizeTaskPlanOperations(value: unknown): NonNullable<TaskUpdateSugge
         reason: "operation",
         changes: record.changes,
       })?.changes;
-      return taskId && changes ? [{ type, taskId, changes }] : [];
+      if (taskId && changes) {
+        operations.push({ type: "update", taskId, changes });
+      }
+      return operations;
     }
     if (type === "add") {
       const task = sanitizeTaskDraft(record.task);
-      return task ? [{
-        type,
-        task,
-        afterTaskId: typeof record.afterTaskId === "string" && record.afterTaskId.trim() ? record.afterTaskId.trim() : undefined,
-      }] : [];
+      if (task) {
+        operations.push({
+          type: "add",
+          task,
+          afterTaskId: typeof record.afterTaskId === "string" && record.afterTaskId.trim() ? record.afterTaskId.trim() : undefined,
+        });
+      }
+      return operations;
     }
     if (type === "remove") {
       const taskId = typeof record.taskId === "string" ? record.taskId.trim() : "";
-      return taskId ? [{ type, taskId }] : [];
+      if (taskId) {
+        operations.push({ type: "remove", taskId });
+      }
+      return operations;
     }
-    return [];
-  });
+    return operations;
+  }, []);
 }
 
 function sanitizeTaskUpdateSuggestion(value: unknown): TaskUpdateSuggestion | null {
@@ -812,7 +822,7 @@ function TaskSuggestionCard({
   onApply: () => void | Promise<void>;
   onDismiss: () => void;
 }) {
-  const operations = suggestion.operations?.length
+  const operations: SuggestionOperation[] = suggestion.operations?.length
     ? suggestion.operations
     : suggestion.taskId && suggestion.changes
       ? [{ type: "update", taskId: suggestion.taskId, changes: suggestion.changes }]
@@ -838,12 +848,15 @@ function TaskSuggestionCard({
   const visibleChanges = updateOperation?.type === "update"
     ? changeLabels.filter(([key]) => updateOperation.changes[key] !== undefined)
     : [];
-  const title =
-    updateOperation?.type === "update"
-      ? (activeTask?.taskId === updateOperation.taskId ? activeTask.title : updateOperation.taskId)
-      : operations[0]?.type === "add"
-        ? operations[0].task.title
-        : operations[0]?.taskId ?? suggestion.taskId ?? "计划调整";
+  const firstOperation = operations[0];
+  let title = suggestion.taskId ?? "计划调整";
+  if (updateOperation?.type === "update") {
+    title = activeTask?.taskId === updateOperation.taskId ? activeTask.title : updateOperation.taskId;
+  } else if (firstOperation?.type === "add") {
+    title = firstOperation.task.title;
+  } else if (firstOperation?.type === "remove") {
+    title = firstOperation.taskId;
+  }
 
   return (
     <div className="ag-task-suggestion-card">

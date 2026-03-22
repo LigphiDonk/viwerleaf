@@ -24,7 +24,7 @@ import type {
   ResearchStageSummary,
   ResearchTask,
   ResearchTaskUpdateChanges,
-  type ResearchTaskPlanOperation,
+  ResearchTaskPlanOperation,
   SkillManifest,
   SyncLocation,
   WorkspaceSnapshot,
