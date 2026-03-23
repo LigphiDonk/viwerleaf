@@ -913,7 +913,7 @@ function AssistantMessage({ msg, streaming }: {
       )}
       {streaming && (
         <div className="ag-stream-status" aria-live="polite">
-          {runningToolCalls > 0 && !clean ? (
+          {runningToolCalls > 0 ? (
             <ScrambleIndicator />
           ) : clean ? (
             <span className="ag-cursor-blink" />

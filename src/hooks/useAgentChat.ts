@@ -654,17 +654,24 @@ export function useAgentChat({
           break;
         case "tool_call_start":
           flushStreamBuffer();
-          appendStreamMarker(
-            serializeToolArgs(chunk.args)
-              ? `[Tool: ${chunk.toolId}]\n[Args]\n${serializeToolArgs(chunk.args)}\n[/Args]`
-              : `[Tool: ${chunk.toolId}]`,
-          );
+          {
+            const useId = chunk.toolUseId || "";
+            const argsStr = serializeToolArgs(chunk.args);
+            const header = `[Tool: ${chunk.toolId}]`;
+            const useIdLine = useId ? `\n[ToolUseId: ${useId}]` : "";
+            const argsBlock = argsStr ? `\n[Args]\n${argsStr}\n[/Args]` : "";
+            appendStreamMarker(`${header}${useIdLine}${argsBlock}`);
+          }
           break;
         case "tool_call_result":
           flushStreamBuffer();
-          appendStreamMarker(
-            `${chunk.status && chunk.status !== "completed" ? `[Status: ${chunk.status}]\n` : ""}[Result]\n${chunk.output}\n[/Result]`,
-          );
+          {
+            const useId = chunk.toolUseId || "";
+            const useIdLine = useId ? `[ToolUseId: ${useId}]\n` : "";
+            appendStreamMarker(
+              `${useIdLine}${chunk.status && chunk.status !== "completed" ? `[Status: ${chunk.status}]\n` : ""}[Result]\n${chunk.output}\n[/Result]`,
+            );
+          }
           break;
         case "patch":
           setPendingPatch({
