@@ -597,9 +597,20 @@ fn build_project_stage_context(
                                     })
                                     .unwrap_or(true)
                         })
-                        .filter_map(|task| task.get("title").and_then(|value| value.as_str()))
-                        .take(3)
-                        .map(ToOwned::to_owned)
+                        .filter_map(|task| {
+                            let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            let title = task.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                            if !title.is_empty() {
+                                Some(if id.is_empty() {
+                                    title.to_string()
+                                } else {
+                                    format!("{id}:{title}")
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .take(5)
                         .collect::<Vec<_>>()
                 };
                 if !current_stage_tasks.is_empty() {
@@ -614,6 +625,10 @@ fn build_project_stage_context(
                         .map(|status| matches!(status, "" | "pending" | "in-progress" | "review"))
                         .unwrap_or(true)
                 }) {
+                    let id = next_task
+                        .get("id")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
                     let title = next_task
                         .get("title")
                         .and_then(|value| value.as_str())
@@ -627,8 +642,11 @@ fn build_project_stage_context(
                         .get("stage")
                         .and_then(|value| value.as_str())
                         .unwrap_or("");
+                    if !id.is_empty() {
+                        lines.push(format!("nextTaskId: {id}"));
+                    }
                     if !title.is_empty() {
-                        lines.push(format!("nextTask: {title}"));
+                        lines.push(format!("nextTaskTitle: {title}"));
                     }
                     if !stage.is_empty() {
                         lines.push(format!("nextTaskStage: {stage}"));
@@ -685,7 +703,7 @@ fn build_project_stage_context(
                 task.artifact_paths.join(", ")
             ));
         }
-        lines.push("taskUpdateProtocol: When the active task or project plan materially changes, append a fenced code block with language `viewerleaf_task_update`. Use JSON with keys `reason`, optional `confidence`, optional `workingMemory`, and `operations`. `operations` is an array of plan actions: `{ \"type\": \"update\", \"taskId\": \"...\", \"changes\": { ... } }`, `{ \"type\": \"add\", \"task\": { \"title\": \"...\", \"stage\": \"survey|ideation|experiment|publication|promotion\", optional \"description\", \"priority\", \"dependencies\", \"taskType\", \"inputsNeeded\", \"suggestedSkills\", \"nextActionPrompt\" } }`, or `{ \"type\": \"remove\", \"taskId\": \"...\" }`. Prefer updating only the active task unless project evidence clearly requires replanning. Do not remove completed tasks.".into());
+        lines.push("taskUpdateProtocol: When the active task or project plan materially changes, append a fenced code block with language `viewerleaf_task_update`. Use JSON with keys `reason`, optional `confidence`, optional `workingMemory`, and `operations`. `operations` is an array of plan actions: `{ \"type\": \"update\", \"taskId\": \"...\", \"changes\": { ... } }`, `{ \"type\": \"add\", \"task\": { \"title\": \"...\", \"stage\": \"survey|ideation|experiment|publication|promotion\", optional \"description\", \"priority\", \"dependencies\", \"taskType\", \"inputsNeeded\", \"suggestedSkills\", \"nextActionPrompt\" } }`, or `{ \"type\": \"remove\", \"taskId\": \"...\" }`. IMPORTANT: Use the exact task IDs from currentStageOpenTasks or activeTaskId (the part before the colon, e.g. \"survey-1\"). Do NOT use task titles as taskId. Prefer updating only the active task unless project evidence clearly requires replanning. Do not remove completed tasks.".into());
     } else {
         lines.push("taskMode: false".into());
     }

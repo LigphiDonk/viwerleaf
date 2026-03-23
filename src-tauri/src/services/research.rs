@@ -520,15 +520,13 @@ fn apply_task_changes(
     task.last_updated_at = iso_now();
 }
 
-fn next_custom_task_id(tasks: &[ResearchTask], stage: &str) -> String {
-    let mut suffix = 1;
-    loop {
-        let candidate = format!("{stage}-custom-{suffix}");
-        if !tasks.iter().any(|task| task.id == candidate) {
-            return candidate;
-        }
-        suffix += 1;
-    }
+fn next_custom_task_id(tasks: &[ResearchTask], _stage: &str) -> String {
+    let max_numeric = tasks
+        .iter()
+        .filter_map(|task| task.id.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    (max_numeric + 1).to_string()
 }
 
 fn build_custom_task(tasks: &[ResearchTask], draft: &ResearchTaskDraft) -> Result<ResearchTask> {
@@ -682,7 +680,7 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
     match stage {
         "survey" => vec![
             TaskBlueprint {
-                id: "survey-1",
+                id: "1",
                 title: "Define the research boundary",
                 description: "Clarify the topic scope, target venue, review criteria, and key research questions.",
                 stage: "survey",
@@ -696,13 +694,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "survey-2",
+                id: "2",
                 title: "Build a traceable literature shortlist",
                 description: "Collect real papers, canonical links, and screening notes for the core problem area.",
                 stage: "survey",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["survey-1"],
+                dependencies: &["1"],
                 inputs_needed: &["seed query list"],
                 artifact_paths: &[
                     ".viewerleaf/research/Survey/reports/screening-notes.md",
@@ -710,13 +708,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "survey-3",
+                id: "3",
                 title: "Extract baseline methods and gaps",
                 description: "Summarize representative baselines, benchmark patterns, and unresolved gaps.",
                 stage: "survey",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["survey-2"],
+                dependencies: &["2"],
                 inputs_needed: &["screened paper list"],
                 artifact_paths: &[
                     ".viewerleaf/research/Survey/reports/gap-summary.md",
@@ -726,13 +724,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
         ],
         "ideation" => vec![
             TaskBlueprint {
-                id: "ideation-1",
+                id: "4",
                 title: "Generate candidate ideas",
                 description: "Turn the survey and gap map into several candidate directions with clear hypotheses.",
                 stage: "ideation",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["survey-3"],
+                dependencies: &["3"],
                 inputs_needed: &["gap summary"],
                 artifact_paths: &[
                     ".viewerleaf/research/Ideation/ideas/candidate-ideas.md",
@@ -740,13 +738,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "ideation-2",
+                id: "5",
                 title: "Check novelty and feasibility",
                 description: "Stress-test the candidates against prior work, resource constraints, and implementation risk.",
                 stage: "ideation",
                 priority: "high",
                 task_type: "exploration",
-                dependencies: &["ideation-1"],
+                dependencies: &["4"],
                 inputs_needed: &["candidate ideas"],
                 artifact_paths: &[
                     ".viewerleaf/research/Ideation/ideas/novelty-check.md",
@@ -754,13 +752,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "ideation-3",
+                id: "6",
                 title: "Select the lead idea",
                 description: "Choose the main angle, define the contribution story, and lock the experiment commitments.",
                 stage: "ideation",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["ideation-2"],
+                dependencies: &["5"],
                 inputs_needed: &["novelty review"],
                 artifact_paths: &[
                     ".viewerleaf/research/Ideation/ideas/selected-idea.md",
@@ -770,13 +768,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
         ],
         "experiment" => vec![
             TaskBlueprint {
-                id: "experiment-1",
+                id: "7",
                 title: "Design the experiment plan",
                 description: "Define implementation scope, datasets, metrics, baselines, and ablations.",
                 stage: "experiment",
                 priority: "high",
                 task_type: "implementation",
-                dependencies: &["ideation-3"],
+                dependencies: &["6"],
                 inputs_needed: &["selected idea"],
                 artifact_paths: &[
                     ".viewerleaf/research/Experiment/analysis/experiment-plan.md",
@@ -784,26 +782,26 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "experiment-2",
+                id: "8",
                 title: "Prepare execution checkpoints",
                 description: "Break the experiment plan into build tasks, logging checkpoints, and analysis milestones.",
                 stage: "experiment",
                 priority: "medium",
                 task_type: "analysis",
-                dependencies: &["experiment-1"],
+                dependencies: &["7"],
                 inputs_needed: &["experiment plan"],
                 artifact_paths: &[
                     ".viewerleaf/research/Experiment/analysis/checkpoints.md",
                 ],
             },
             TaskBlueprint {
-                id: "experiment-3",
+                id: "9",
                 title: "Summarize validated claims",
                 description: "Organize results, caveats, and claim-evidence links for the writing stage.",
                 stage: "experiment",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["experiment-2"],
+                dependencies: &["8"],
                 inputs_needed: &["run logs", "analysis notes"],
                 artifact_paths: &[
                     ".viewerleaf/research/Experiment/analysis/result-summary.md",
@@ -813,48 +811,48 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
         ],
         "publication" => vec![
             TaskBlueprint {
-                id: "publication-1",
+                id: "10",
                 title: "Draft the paper outline",
                 description: "Translate the validated research state into a section plan and writing checklist.",
                 stage: "publication",
                 priority: "high",
                 task_type: "writing",
-                dependencies: &["experiment-3"],
+                dependencies: &["9"],
                 inputs_needed: &["validated claims", "figures"],
                 artifact_paths: &["main.tex", "sections/introduction.tex"],
             },
             TaskBlueprint {
-                id: "publication-2",
+                id: "11",
                 title: "Audit references and evidence links",
                 description: "Check citations, claims, and reference formatting before the manuscript hardens.",
                 stage: "publication",
                 priority: "high",
                 task_type: "analysis",
-                dependencies: &["publication-1"],
+                dependencies: &["10"],
                 inputs_needed: &["draft outline", "reference list"],
                 artifact_paths: &["refs/references.bib"],
             },
             TaskBlueprint {
-                id: "publication-3",
+                id: "12",
                 title: "Prepare submission assets",
                 description: "Finalize checklist items, figures, appendix needs, and submission-facing notes.",
                 stage: "publication",
                 priority: "medium",
                 task_type: "writing",
-                dependencies: &["publication-2"],
+                dependencies: &["11"],
                 inputs_needed: &["stable draft"],
                 artifact_paths: &["main.tex"],
             },
         ],
         "promotion" => vec![
             TaskBlueprint {
-                id: "promotion-1",
+                id: "13",
                 title: "Prepare slides and talk track",
                 description: "Turn the stable manuscript into slides, a talk narrative, and summary framing.",
                 stage: "promotion",
                 priority: "medium",
                 task_type: "delivery",
-                dependencies: &["publication-3"],
+                dependencies: &["12"],
                 inputs_needed: &["paper draft"],
                 artifact_paths: &[
                     ".viewerleaf/research/Promotion/slides",
@@ -862,13 +860,13 @@ fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
                 ],
             },
             TaskBlueprint {
-                id: "promotion-2",
+                id: "14",
                 title: "Prepare release-facing assets",
                 description: "Draft release notes, project summary text, and downstream communication materials.",
                 stage: "promotion",
                 priority: "low",
                 task_type: "delivery",
-                dependencies: &["promotion-1"],
+                dependencies: &["13"],
                 inputs_needed: &["slides", "paper summary"],
                 artifact_paths: &[
                     ".viewerleaf/research/Promotion/homepage",
@@ -1682,7 +1680,7 @@ mod tests {
                         stage: "survey".into(),
                         description: Some("Verify target venue boundaries.".into()),
                         priority: Some("high".into()),
-                        dependencies: Some(vec!["survey-1".into()]),
+                        dependencies: Some(vec!["1".into()]),
                         next_action_prompt: Some(
                             "Review venue CFP and collect constraints.".into(),
                         ),
@@ -1702,7 +1700,7 @@ mod tests {
             .find(|task| task.title == "Check venue scope")
             .expect("custom task");
         assert_eq!(custom_task.stage, "survey");
-        assert_eq!(custom_task.dependencies, vec!["survey-1"]);
+        assert_eq!(custom_task.dependencies, vec!["1"]);
     }
 
     #[test]
@@ -1715,7 +1713,7 @@ mod tests {
             &root,
             &ApplyResearchTaskSuggestionRequest {
                 operations: vec![ResearchTaskPlanOperation::Remove {
-                    task_id: "survey-2".into(),
+                    task_id: "2".into(),
                 }],
                 working_memory: None,
             },
@@ -1723,6 +1721,6 @@ mod tests {
         .expect("remove task");
 
         let snapshot = load_research_snapshot(&root).expect("snapshot");
-        assert!(snapshot.tasks.iter().all(|task| task.id != "survey-2"));
+        assert!(snapshot.tasks.iter().all(|task| task.id != "2"));
     }
 }
