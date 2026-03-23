@@ -206,6 +206,16 @@ fn pipeline_root(root: &Path) -> PathBuf {
 }
 
 fn bundled_skills_root(app_root: &Path) -> PathBuf {
+    let candidates = [
+        app_root.join("skills"),
+        app_root.join("src-tauri/resources/skills"),
+        app_root.join("resources/skills"),
+    ];
+    for candidate in &candidates {
+        if candidate.is_dir() {
+            return candidate.clone();
+        }
+    }
     app_root.join("skills")
 }
 

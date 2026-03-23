@@ -29,7 +29,15 @@ pub fn refresh_skill_registry(
     app_root: &Path,
     project_root: Option<&Path>,
 ) -> Result<(), String> {
-    sync_skill_source(conn, &[app_root.join("skills")], "builtin")?;
+    let builtin_roots: Vec<PathBuf> = [
+        app_root.join("skills"),
+        app_root.join("src-tauri/resources/skills"),
+        app_root.join("resources/skills"),
+    ]
+    .into_iter()
+    .filter(|p| p.is_dir())
+    .collect();
+    sync_skill_source(conn, &builtin_roots, "builtin")?;
     sync_skill_source(conn, &global_skill_roots(), "local")?;
 
     let project_roots = project_root

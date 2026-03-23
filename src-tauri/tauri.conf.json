@@ -38,7 +38,8 @@
     "targets": "all",
     "resources": [
       "resources/sidecar",
-      "resources/worker-template"
+      "resources/worker-template",
+      "resources/skills"
     ],
     "icon": [
       "../icons/32x32.png",
