@@ -3909,9 +3909,18 @@ button {
   color: var(--text-tertiary);
   animation: ag-scramble-fade 0.6s ease-in-out infinite alternate;
 }
+.ag-scramble-text--slow {
+  letter-spacing: 0.18em;
+  animation: ag-scramble-fade-slow 4s ease-in-out infinite alternate;
+}
 @keyframes ag-scramble-fade {
   0% { opacity: 0.4; }
   100% { opacity: 0.8; }
+}
+@keyframes ag-scramble-fade-slow {
+  0% { opacity: 0.3; }
+  50% { opacity: 0.65; }
+  100% { opacity: 0.35; }
 }
 
 /* Streaming cursor */

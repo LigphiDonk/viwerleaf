@@ -115,6 +115,11 @@ async function buildSdkOptions(request) {
     fastMode: true,
   };
 
+  // Explicitly set the small/fast model for Haiku routing.
+  // Claude Code CLI uses this to route simple read operations to Haiku,
+  // which is separate from the Opus 4.6 "fast mode" above.
+  options.smallFastModel = "claude-haiku-4-5-20251001";
+
   // ── Elicitation callback ──────────────────────────────────
   // When an MCP server requests user input (form fields, OAuth, etc.),
   // emit the request for frontend display and auto-accept.

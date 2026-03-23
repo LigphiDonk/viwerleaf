@@ -734,19 +734,18 @@ function buildToolOutputPreview(output?: string) {
 
 /* ─── Scramble indicator (Claude Code style) ─────────── */
 const SCRAMBLE_CHARS = "abcdefghijklmnopqrstuvwxyz";
-function ScrambleIndicator() {
-  const [text, setText] = useState(() =>
-    Array.from({ length: 6 }, () => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join(""),
-  );
+function makeScramble(len: number) {
+  return Array.from({ length: len }, () => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join("");
+}
+function ScrambleIndicator({ slow }: { slow?: boolean }) {
+  const charLen = slow ? 12 : 6;
+  const intervalMs = slow ? 30_000 : 60;
+  const [text, setText] = useState(() => makeScramble(charLen));
   useEffect(() => {
-    const id = setInterval(() => {
-      setText(
-        Array.from({ length: 6 }, () => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join(""),
-      );
-    }, 60);
+    const id = setInterval(() => setText(makeScramble(charLen)), intervalMs);
     return () => clearInterval(id);
-  }, []);
-  return <span className="ag-scramble-text">{text}</span>;
+  }, [charLen, intervalMs]);
+  return <span className={`ag-scramble-text${slow ? " ag-scramble-text--slow" : ""}`}>{text}</span>;
 }
 
 /* ─── Tool call card ──────────────────────────────────── */
@@ -919,11 +918,7 @@ function AssistantMessage({ msg, streaming }: {
             <span className="ag-cursor-blink" />
           ) : (
             <>
-              <span className="ag-stream-status-dots" aria-hidden="true">
-                <span className="ag-thinking-dot" />
-                <span className="ag-thinking-dot" />
-                <span className="ag-thinking-dot" />
-              </span>
+              <ScrambleIndicator slow />
               <span className="ag-stream-status-label">{streamStatusLabel}</span>
             </>
           )}
