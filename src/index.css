@@ -937,83 +937,103 @@ button {
 }
 
 .workspace-empty-state {
-  width: min(860px, calc(100% - 88px));
-  margin: auto;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 30px;
-  padding: 40px 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px 32px;
   background: transparent;
 }
 
-.workspace-empty-state__hero {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 680px;
-}
-
-.workspace-empty-state__eyebrow {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.workspace-empty-state__logo {
+  width: 64px;
+  height: 64px;
   color: var(--accent-primary);
+  margin-bottom: 12px;
 }
 
-.workspace-empty-state h2 {
-  margin: 0;
-  font-size: clamp(34px, 5vw, 52px);
-  line-height: 1.02;
-  letter-spacing: -0.03em;
+.workspace-empty-state__logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-empty-state__brand {
+  font-size: 22px;
+  font-weight: 600;
   color: var(--text-primary);
-}
-
-.workspace-empty-state p {
-  margin: 0;
-  max-width: 560px;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--text-secondary);
+  letter-spacing: -0.02em;
+  margin-bottom: 32px;
 }
 
 .workspace-empty-state__actions {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  max-width: 640px;
+  width: min(460px, 100%);
+}
+
+.workspace-empty-state__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+  cursor: pointer;
+}
+
+.workspace-empty-state__btn svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.workspace-empty-state__btn--primary {
+  width: 100%;
+  height: 48px;
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  font-size: 15px;
+  box-shadow: 0 2px 8px rgba(16, 163, 127, 0.2);
+}
+
+.workspace-empty-state__btn--primary:hover {
+  background: var(--accent-primary-hover, #0d9668);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(16, 163, 127, 0.28);
 }
 
 .workspace-empty-state__secondary-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 12px;
   width: 100%;
 }
 
-.workspace-empty-state__btn {
-  min-width: 180px;
+.workspace-empty-state__btn--secondary {
+  flex: 1;
+  height: 44px;
+  background: var(--bg-surface-hover, #f4f7fa);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light, #e4eaf1);
 }
 
-.workspace-empty-state__btn--primary {
-  min-width: min(520px, 100%);
-  padding-inline: 26px;
+.workspace-empty-state__btn--secondary:hover {
+  background: var(--bg-surface-active, #eef2f6);
+  border-color: rgba(16, 163, 127, 0.2);
 }
 
 .workspace-empty-state__recent {
+  margin-top: 36px;
+  width: min(460px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(219, 228, 240, 0.88);
-}
-
-.workspace-empty-state__recent-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .workspace-empty-state__recent-label {
@@ -1022,83 +1042,63 @@ button {
   color: var(--text-primary);
 }
 
-.workspace-empty-state__recent-count {
-  min-width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(241, 245, 249, 0.95);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .workspace-empty-state__recent-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  gap: 8px;
 }
 
-.workspace-empty-state__recent-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 18px 4px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
-  background: transparent;
-  text-align: left;
-  transition: background-color var(--transition-fast), padding-inline var(--transition-fast);
-}
-
-.workspace-empty-state__recent-item:hover {
-  padding-inline: 10px;
-  background: rgba(248, 250, 252, 0.9);
-}
-
-.workspace-empty-state__recent-copy {
-  min-width: 0;
+.workspace-empty-state__recent-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg-surface-hover, #f4f7fa);
+  border: 1px solid var(--border-light, #e4eaf1);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.workspace-empty-state__recent-card:hover {
+  background: var(--bg-surface-active, #eef2f6);
+  border-color: rgba(16, 163, 127, 0.18);
+  transform: translateY(-1px);
 }
 
 .workspace-empty-state__recent-title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .workspace-empty-state__recent-path {
-  max-width: 100%;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-empty-state__recent-open {
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent-primary);
+.workspace-empty-state__show-more {
+  margin-top: 4px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
 }
 
-.workspace-empty-state__recent-empty {
-  padding: 20px 0 0;
-  color: var(--text-secondary);
-  background: transparent;
+.workspace-empty-state__show-more:hover {
+  color: var(--accent-primary);
 }
 
 @media (max-width: 760px) {
   .workspace-empty-state {
-    width: min(100%, calc(100% - 32px));
-    gap: 24px;
-    padding: 28px 0 20px;
+    padding: 28px 16px 20px;
   }
 
   .workspace-empty-state__actions,
@@ -1106,20 +1106,12 @@ button {
     width: 100%;
   }
 
-  .workspace-empty-state__btn,
-  .workspace-empty-state__btn--primary {
-    width: 100%;
-  }
-
-  .workspace-empty-state__recent-item {
-    align-items: flex-start;
+  .workspace-empty-state__secondary-actions {
     flex-direction: column;
-    gap: 10px;
-    padding-inline: 0;
   }
 
-  .workspace-empty-state__recent-item:hover {
-    padding-inline: 0;
+  .workspace-empty-state__recent {
+    width: 100%;
   }
 }
 

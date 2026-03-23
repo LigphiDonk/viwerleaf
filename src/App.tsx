@@ -575,66 +575,91 @@ function WorkspaceEmptyState({
   onOpenRecentWorkspace: (rootPath: string) => void;
 }) {
   const isZh = locale === "zh-CN";
-  const visibleRecentWorkspaces = recentWorkspaces.slice(0, 6);
+  const [showAll, setShowAll] = useState(false);
+  const PREVIEW_COUNT = 4;
+  const visibleRecentWorkspaces = showAll ? recentWorkspaces : recentWorkspaces.slice(0, PREVIEW_COUNT);
+  const hasMore = recentWorkspaces.length > PREVIEW_COUNT;
+
+  function shortenPath(fullPath: string) {
+    const home = typeof window !== "undefined" && "process" in window
+      ? (window as unknown as { process: { env: Record<string, string> } }).process.env.HOME ?? ""
+      : "";
+    if (home && fullPath.startsWith(home)) {
+      return `~${fullPath.slice(home.length)}`;
+    }
+    const parts = fullPath.split("/");
+    if (parts.length > 3) {
+      return `~/${parts.slice(-2).join("/")}`;
+    }
+    return fullPath;
+  }
 
   return (
     <div className="workspace-empty-state">
-      <div className="workspace-empty-state__hero">
-        <div className="workspace-empty-state__eyebrow">{isZh ? "工作区" : "Workspace"}</div>
-        <h2>{isZh ? "打开或创建一个项目" : "Open or create a project"}</h2>
-        <p>
-          {isZh
-            ? "左右两侧保持折叠，直接从中间主工作区开始。"
-            : "Both side panes stay collapsed so you start directly from the main workspace."}
-        </p>
+      {/* Logo */}
+      <div className="workspace-empty-state__logo" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 6C24 6 14 18 14 28a10 10 0 0 0 20 0C34 18 24 6 24 6z" fill="currentColor" opacity="0.15"/>
+          <path d="M24 6C24 6 14 18 14 28a10 10 0 0 0 20 0C34 18 24 6 24 6z" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          <path d="M24 20v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          <path d="M20 26l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
       </div>
 
+      <div className="workspace-empty-state__brand">ViewerLeaf</div>
+
+      {/* Actions */}
       <div className="workspace-empty-state__actions">
-        <button className="btn-primary workspace-empty-state__btn workspace-empty-state__btn--primary" type="button" onClick={onOpenProject}>
-          {isZh ? "打开项目" : "Open Project"}
+        <button className="workspace-empty-state__btn workspace-empty-state__btn--primary" type="button" onClick={onOpenProject}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7h5l2 2h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+          </svg>
+          {isZh ? "打开项目" : "Open Folder"}
         </button>
         <div className="workspace-empty-state__secondary-actions">
-          <button className="btn-secondary workspace-empty-state__btn" type="button" onClick={onCreateProject}>
+          <button className="workspace-empty-state__btn workspace-empty-state__btn--secondary" type="button" onClick={onCreateProject}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14"></path>
+              <path d="M5 12h14"></path>
+            </svg>
             {isZh ? "创建项目" : "Create Project"}
           </button>
-          <button className="btn-secondary workspace-empty-state__btn" type="button" onClick={onLinkCloudProject}>
-            {isZh ? "关联云项目" : "Link Cloud Project"}
+          <button className="workspace-empty-state__btn workspace-empty-state__btn--secondary" type="button" onClick={onLinkCloudProject}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 4"></path>
+              <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13 20"></path>
+            </svg>
+            {isZh ? "关联云项目" : "Clone Repository"}
           </button>
         </div>
       </div>
 
-      <div className="workspace-empty-state__recent">
-        <div className="workspace-empty-state__recent-header">
-          <div className="workspace-empty-state__recent-label">{isZh ? "最近项目" : "Recent Projects"}</div>
-          {visibleRecentWorkspaces.length > 0 ? (
-            <span className="workspace-empty-state__recent-count">
-              {visibleRecentWorkspaces.length}
-            </span>
-          ) : null}
-        </div>
-        {visibleRecentWorkspaces.length > 0 ? (
+      {/* Recent workspaces */}
+      {recentWorkspaces.length > 0 && (
+        <div className="workspace-empty-state__recent">
+          <div className="workspace-empty-state__recent-label">
+            {isZh ? "工作区" : "Workspaces"}
+          </div>
           <div className="workspace-empty-state__recent-list">
             {visibleRecentWorkspaces.map((workspace) => (
               <button
                 key={workspace.rootPath}
                 type="button"
-                className="workspace-empty-state__recent-item"
+                className="workspace-empty-state__recent-card"
                 onClick={() => onOpenRecentWorkspace(workspace.rootPath)}
               >
-                <span className="workspace-empty-state__recent-copy">
-                  <span className="workspace-empty-state__recent-title">{workspace.label}</span>
-                  <span className="workspace-empty-state__recent-path">{workspace.rootPath}</span>
-                </span>
-                <span className="workspace-empty-state__recent-open">{isZh ? "打开" : "Open"}</span>
+                <span className="workspace-empty-state__recent-title">{workspace.label}</span>
+                <span className="workspace-empty-state__recent-path">{shortenPath(workspace.rootPath)}</span>
               </button>
             ))}
           </div>
-        ) : (
-          <div className="workspace-empty-state__recent-empty">
-            {isZh ? "暂无最近项目" : "No recent projects yet"}
-          </div>
-        )}
-      </div>
+          {hasMore && !showAll && (
+            <button type="button" className="workspace-empty-state__show-more" onClick={() => setShowAll(true)}>
+              {isZh ? "显示更多..." : "Show More..."}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2790,9 +2815,15 @@ function App() {
       return;
     }
 
-    await saveDirtyFilesBeforeWorkspaceSwitch();
-    const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.createProject(parentDir, projectName.trim()));
-    applyFreshWorkspaceSnapshot(nextSnapshot);
+    try {
+      await saveDirtyFilesBeforeWorkspaceSwitch();
+      const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.createProject(parentDir, projectName.trim()));
+      applyFreshWorkspaceSnapshot(nextSnapshot);
+      setWorkspaceSurface("writing");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`创建项目失败：\n${message}`);
+    }
   }
 
   async function refreshAvailableCloudProjects() {
@@ -4065,13 +4096,6 @@ function App() {
               </svg>
             </button>
 
-            <button
-              className={`activity-icon hover-spring ${workspaceSurface === "literature" ? "is-active" : ""}`}
-              onClick={() => handleOpenLiteratureLibrary()}
-              title={isZh ? "文献管理" : "Literature"}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="14" y2="10"/></svg>
-            </button>
 
             <div style={{ flex: 1 }}></div>
 
