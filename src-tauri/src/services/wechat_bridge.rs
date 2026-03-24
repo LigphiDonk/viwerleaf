@@ -175,16 +175,16 @@ pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
 
     // Extract QR code URL and ticket from the ilink response.
     let qr_url = response_body
-        .get("qrcode_url")
-        .or_else(|| response_body.get("qr_url"))
+        .get("qrcode_img_content")
+        .or_else(|| response_body.get("qrcode_url"))
         .or_else(|| response_body.get("url"))
         .and_then(|v: &serde_json::Value| v.as_str())
         .unwrap_or_default()
         .to_string();
 
     let scan_ticket = response_body
-        .get("ticket")
-        .or_else(|| response_body.get("scan_ticket"))
+        .get("qrcode")
+        .or_else(|| response_body.get("ticket"))
         .and_then(|v: &serde_json::Value| v.as_str())
         .unwrap_or_default()
         .to_string();
@@ -212,7 +212,7 @@ pub fn poll_scan_status(api_url: &str, ticket: &str) -> Result<Option<String>, S
     let agent = make_agent(Duration::from_secs(10));
 
     let body = serde_json::json!({
-        "ticket": ticket
+        "qrcode": ticket
     });
 
     let response = agent
