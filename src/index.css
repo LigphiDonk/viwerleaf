@@ -3658,7 +3658,6 @@ button {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px 16px 12px;
-  scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
 }

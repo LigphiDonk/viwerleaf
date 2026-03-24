@@ -1780,8 +1780,10 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
+  const userScrolledAwayRef = useRef(false);
   const sessionSearchRef = useRef<HTMLInputElement>(null);
   const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
@@ -1874,9 +1876,25 @@ export function ChatPanel({
     return SLASH_COMMANDS.filter(c => c.name.toLowerCase().includes(lower));
   }, [slashFilter]);
 
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    userScrolledAwayRef.current = !atBottom;
+  }, []);
+
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
+    if (!userScrolledAwayRef.current) {
+      endRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
+    }
   }, [isStreaming, messages, streamContent, streamError, streamThinkingText]);
+
+  // Reset scroll-away flag when streaming ends
+  useEffect(() => {
+    if (!isStreaming) {
+      userScrolledAwayRef.current = false;
+    }
+  }, [isStreaming]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1946,6 +1964,7 @@ export function ChatPanel({
     const text = inputText.trim();
     if (!text || isStreaming) return;
     setInputText("");
+    userScrolledAwayRef.current = false;
     setShowAtMenu(false);
     setShowSlashMenu(false);
     // Handle / commands
@@ -1971,6 +1990,9 @@ export function ChatPanel({
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInputText(val);
+
+    // Skip menu detection during IME composition
+    if (isComposingRef.current) return;
 
     // @ mention detection
     const cursorPos = e.target.selectionStart;
@@ -2024,14 +2046,14 @@ export function ChatPanel({
     if (showAtMenu && filteredFiles.length > 0) {
       if (e.key === "ArrowDown") { e.preventDefault(); setAtIndex(i => Math.min(i + 1, filteredFiles.length - 1)); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setAtIndex(i => Math.max(i - 1, 0)); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertAtMention(filteredFiles[atIndex]); return; }
+      if ((e.key === "Enter" || e.key === "Tab") && !isComposingRef.current && !e.nativeEvent.isComposing) { e.preventDefault(); insertAtMention(filteredFiles[atIndex]); return; }
       if (e.key === "Escape") { e.preventDefault(); setShowAtMenu(false); return; }
     }
     // / menu navigation
     if (showSlashMenu && filteredCommands.length > 0) {
       if (e.key === "ArrowDown") { e.preventDefault(); setSlashIndex(i => Math.min(i + 1, filteredCommands.length - 1)); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setSlashIndex(i => Math.max(i - 1, 0)); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertSlashCommand(filteredCommands[slashIndex]); return; }
+      if ((e.key === "Enter" || e.key === "Tab") && !isComposingRef.current && !e.nativeEvent.isComposing) { e.preventDefault(); insertSlashCommand(filteredCommands[slashIndex]); return; }
       if (e.key === "Escape") { e.preventDefault(); setShowSlashMenu(false); return; }
     }
     if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); }
@@ -2216,7 +2238,7 @@ export function ChatPanel({
       )}
 
       {/* Messages scroll area */}
-      <div className="ag-messages">
+      <div className="ag-messages" ref={messagesRef} onScroll={handleMessagesScroll}>
         {!hasConversationContent && !isStreaming && (
           <div className="ag-empty">
             <div className="ag-empty-glyph">✦</div>
@@ -2367,7 +2389,7 @@ export function ChatPanel({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => { isComposingRef.current = true; }}
-          onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }}
+          onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 50); }}
           placeholder={
             isStreaming
               ? "AI 正在回复…"
