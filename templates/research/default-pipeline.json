@@ -1,0 +1,251 @@
+{
+  "templateId": "viewerleaf-default-research-v1",
+  "version": 1,
+  "stages": {
+    "survey": {
+      "requiredElements": [
+        "research_boundary",
+        "literature_shortlist",
+        "baseline_gaps"
+      ],
+      "optionalElements": [
+        "venue_analysis",
+        "methodology_comparison"
+      ],
+      "qualityGate": "Domain map, traceable paper bank, and gap matrix are complete and evidence-linked.",
+      "taskBlueprints": [
+        {
+          "title": "Define the research boundary",
+          "description": "Clarify the topic scope, target venue, review criteria, and key research questions.",
+          "taskType": "exploration",
+          "priority": "high",
+          "inputsNeeded": ["topic boundary", "target venue"],
+          "artifactPaths": [
+            ".viewerleaf/research/Survey/reports/domain-map.md",
+            ".pipeline/docs/domain_map.md"
+          ]
+        },
+        {
+          "title": "Build a traceable literature shortlist",
+          "description": "Collect real papers, canonical links, and screening notes for the core problem area.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["seed query list"],
+          "artifactPaths": [
+            ".viewerleaf/research/Survey/reports/screening-notes.md",
+            ".pipeline/docs/paper_bank.json"
+          ]
+        },
+        {
+          "title": "Extract baseline methods and gaps",
+          "description": "Summarize representative baselines, benchmark patterns, and unresolved gaps.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["screened paper list"],
+          "artifactPaths": [
+            ".viewerleaf/research/Survey/reports/gap-summary.md",
+            ".pipeline/docs/gap_matrix.md"
+          ]
+        }
+      ],
+      "recommendedSkills": [
+        "inno-deep-research",
+        "gemini-deep-research",
+        "academic-researcher",
+        "dataset-discovery",
+        "biorxiv-database"
+      ]
+    },
+    "ideation": {
+      "requiredElements": [
+        "candidate_ideas",
+        "novelty_check",
+        "lead_idea_selection"
+      ],
+      "optionalElements": [
+        "feasibility_matrix",
+        "risk_assessment"
+      ],
+      "qualityGate": "A lead idea is selected with a clear contribution story and experiment commitments.",
+      "taskBlueprints": [
+        {
+          "title": "Generate candidate ideas",
+          "description": "Turn the survey and gap map into several candidate directions with clear hypotheses.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["gap summary"],
+          "artifactPaths": [
+            ".viewerleaf/research/Ideation/ideas/candidate-ideas.md",
+            ".pipeline/docs/idea_board.json"
+          ]
+        },
+        {
+          "title": "Check novelty and feasibility",
+          "description": "Stress-test the candidates against prior work, resource constraints, and implementation risk.",
+          "taskType": "exploration",
+          "priority": "high",
+          "inputsNeeded": ["candidate ideas"],
+          "artifactPaths": [
+            ".viewerleaf/research/Ideation/ideas/novelty-check.md",
+            ".pipeline/docs/idea_eval.md"
+          ]
+        },
+        {
+          "title": "Select the lead idea",
+          "description": "Choose the main angle, define the contribution story, and lock the experiment commitments.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["novelty review"],
+          "artifactPaths": [
+            ".viewerleaf/research/Ideation/ideas/selected-idea.md",
+            ".pipeline/docs/selected_idea.md"
+          ]
+        }
+      ],
+      "recommendedSkills": [
+        "inno-pipeline-planner",
+        "inno-prepare-resources",
+        "inno-deep-research",
+        "inno-idea-generation",
+        "inno-idea-eval"
+      ]
+    },
+    "experiment": {
+      "requiredElements": [
+        "experiment_plan",
+        "execution_checkpoints",
+        "validated_claims"
+      ],
+      "optionalElements": [
+        "ablation_matrix",
+        "reproducibility_notes"
+      ],
+      "qualityGate": "Results are organized with claim-evidence links, caveats, and remaining questions documented.",
+      "taskBlueprints": [
+        {
+          "title": "Design the experiment plan",
+          "description": "Define implementation scope, datasets, metrics, baselines, and ablations.",
+          "taskType": "implementation",
+          "priority": "high",
+          "inputsNeeded": ["selected idea"],
+          "artifactPaths": [
+            ".viewerleaf/research/Experiment/analysis/experiment-plan.md",
+            ".pipeline/docs/experiment_plan.md"
+          ]
+        },
+        {
+          "title": "Prepare execution checkpoints",
+          "description": "Break the experiment plan into build tasks, logging checkpoints, and analysis milestones.",
+          "taskType": "analysis",
+          "priority": "medium",
+          "inputsNeeded": ["experiment plan"],
+          "artifactPaths": [
+            ".viewerleaf/research/Experiment/analysis/checkpoints.md"
+          ]
+        },
+        {
+          "title": "Summarize validated claims",
+          "description": "Organize results, caveats, and claim-evidence links for the writing stage.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["run logs", "analysis notes"],
+          "artifactPaths": [
+            ".viewerleaf/research/Experiment/analysis/result-summary.md",
+            ".pipeline/docs/result_summary.md"
+          ]
+        }
+      ],
+      "recommendedSkills": [
+        "inno-code-survey",
+        "dataset-discovery",
+        "inno-experiment-dev",
+        "inno-experiment-analysis",
+        "bioinformatics-init-analysis"
+      ]
+    },
+    "publication": {
+      "requiredElements": [
+        "paper_outline",
+        "reference_audit",
+        "submission_assets"
+      ],
+      "optionalElements": [
+        "supplementary_materials",
+        "cover_letter"
+      ],
+      "qualityGate": "Manuscript is complete with audited references and submission-ready assets.",
+      "taskBlueprints": [
+        {
+          "title": "Draft the paper outline",
+          "description": "Translate the validated research state into a section plan and writing checklist.",
+          "taskType": "writing",
+          "priority": "high",
+          "inputsNeeded": ["validated claims", "figures"],
+          "artifactPaths": ["main.tex", "sections/introduction.tex"]
+        },
+        {
+          "title": "Audit references and evidence links",
+          "description": "Check citations, claims, and reference formatting before the manuscript hardens.",
+          "taskType": "analysis",
+          "priority": "high",
+          "inputsNeeded": ["draft outline", "reference list"],
+          "artifactPaths": ["refs/references.bib"]
+        },
+        {
+          "title": "Prepare submission assets",
+          "description": "Finalize checklist items, figures, appendix needs, and submission-facing notes.",
+          "taskType": "writing",
+          "priority": "medium",
+          "inputsNeeded": ["stable draft"],
+          "artifactPaths": ["main.tex"]
+        }
+      ],
+      "recommendedSkills": [
+        "inno-paper-writing",
+        "inno-figure-gen",
+        "inno-paper-reviewer",
+        "inno-reference-audit",
+        "inno-rclone-to-overleaf",
+        "scientific-writing",
+        "ml-paper-writing"
+      ]
+    },
+    "promotion": {
+      "requiredElements": [
+        "slides_and_talk",
+        "release_assets"
+      ],
+      "optionalElements": [
+        "blog_post",
+        "video_walkthrough"
+      ],
+      "qualityGate": "Slides, talk track, and release-facing materials are ready for dissemination.",
+      "taskBlueprints": [
+        {
+          "title": "Prepare slides and talk track",
+          "description": "Turn the stable manuscript into slides, a talk narrative, and summary framing.",
+          "taskType": "delivery",
+          "priority": "medium",
+          "inputsNeeded": ["paper draft"],
+          "artifactPaths": [
+            ".viewerleaf/research/Promotion/slides",
+            ".pipeline/docs/promo_plan.md"
+          ]
+        },
+        {
+          "title": "Prepare release-facing assets",
+          "description": "Draft release notes, project summary text, and downstream communication materials.",
+          "taskType": "delivery",
+          "priority": "low",
+          "inputsNeeded": ["slides", "paper summary"],
+          "artifactPaths": [
+            ".viewerleaf/research/Promotion/homepage"
+          ]
+        }
+      ],
+      "recommendedSkills": [
+        "making-academic-presentations"
+      ]
+    }
+  }
+}

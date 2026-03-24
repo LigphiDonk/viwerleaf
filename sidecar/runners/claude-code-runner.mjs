@@ -28,6 +28,8 @@ function isSystemPromptContent(text) {
   if (/^#+\s+.*instructions\s+for\s+\//im.test(text)) return true;
   if (text.includes("Base directory for this skill:") && text.length > 500)
     return true;
+  if (/\[\[VIEWERLEAF_|\[\[SKILL_INDEX\]\]|\[\[\/SKILL/.test(text))
+    return true;
   return false;
 }
 

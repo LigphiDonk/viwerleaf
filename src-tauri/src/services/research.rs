@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
@@ -25,6 +25,8 @@ const AGENTS_TEMPLATE: &str = include_str!("../../../templates/research/AGENTS.m
 const CLAUDE_TEMPLATE: &str = include_str!("../../../templates/research/CLAUDE.md");
 const RESEARCH_SCOPE_FIXTURE: &str = include_str!("../../../skills/research-scope.json");
 const RESEARCH_STAGE_MAP_FIXTURE: &str = include_str!("../../../skills/research-stage-map.json");
+const DEFAULT_PIPELINE_TEMPLATE: &str =
+    include_str!("../../../templates/research/default-pipeline.json");
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -45,24 +47,47 @@ struct BriefMeta {
     interaction_rules: Option<Vec<String>>,
 }
 
-enum BriefReadResult {
-    Missing,
-    InvalidJson,
-    Valid(Value, BriefMeta),
+// ── Pipeline template types ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PipelineTemplate {
+    #[allow(dead_code)]
+    template_id: Option<String>,
+    stages: HashMap<String, TemplateStage>,
 }
 
-#[derive(Clone, Copy)]
-struct TaskBlueprint {
-    id: &'static str,
-    title: &'static str,
-    description: &'static str,
-    stage: &'static str,
-    priority: &'static str,
-    task_type: &'static str,
-    dependencies: &'static [&'static str],
-    inputs_needed: &'static [&'static str],
-    artifact_paths: &'static [&'static str],
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TemplateStage {
+    #[serde(default)]
+    required_elements: Vec<String>,
+    #[serde(default)]
+    optional_elements: Vec<String>,
+    #[serde(default)]
+    quality_gate: String,
+    #[serde(default)]
+    task_blueprints: Vec<TemplateBlueprintEntry>,
+    #[serde(default)]
+    recommended_skills: Vec<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TemplateBlueprintEntry {
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default, alias = "task_type")]
+    task_type: String,
+    #[serde(default)]
+    priority: String,
+    #[serde(default)]
+    inputs_needed: Vec<String>,
+    #[serde(default)]
+    artifact_paths: Vec<String>,
+}
+
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -336,6 +361,8 @@ fn collect_publication_files(root: &Path) -> Vec<String> {
 }
 
 fn default_research_brief(project_title: &str, start_stage: &str) -> Value {
+    let template = load_default_template();
+    let stages_value = serde_json::to_value(&template.stages).unwrap_or(json!({}));
     json!({
         "version": 1,
         "topic": project_title,
@@ -353,7 +380,8 @@ fn default_research_brief(project_title: &str, start_stage: &str) -> Value {
         "pipeline": {
             "startStage": start_stage,
             "currentStage": start_stage,
-            "initializedStages": []
+            "initializedStages": [],
+            "stages": stages_value
         },
         "stageNotes": {
             "survey": "Map the field, collect traceable papers, and define the research boundary.",
@@ -658,259 +686,249 @@ fn sort_tasks(tasks: &mut [ResearchTask]) {
     });
 }
 
-fn default_tasks(start_stage: &str) -> Vec<ResearchTask> {
-    let make_task = |blueprint: TaskBlueprint| {
-        let stage = blueprint.stage;
-        let title = blueprint.title;
-        let description = blueprint.description;
-        let task_type = blueprint.task_type;
-        let suggested_skills = recommended_skills(stage, task_type);
-        let next_action_prompt = build_next_action_prompt(stage, task_type, &suggested_skills);
-        let task_prompt = default_task_prompt(stage, title, description, &next_action_prompt);
-        ResearchTask {
-            id: blueprint.id.into(),
-            title: title.into(),
-            description: description.into(),
-            status: "pending".into(),
-            stage: stage.into(),
-            priority: blueprint.priority.into(),
-            dependencies: blueprint
-                .dependencies
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
-            task_type: task_type.into(),
-            inputs_needed: blueprint
-                .inputs_needed
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
-            suggested_skills,
-            next_action_prompt,
-            artifact_paths: blueprint
-                .artifact_paths
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
-            task_prompt,
-            context_notes: String::new(),
-            last_updated_at: String::new(),
-            agent_entry_label: "Enter Agent".into(),
+fn load_default_template() -> PipelineTemplate {
+    serde_json::from_str::<PipelineTemplate>(DEFAULT_PIPELINE_TEMPLATE)
+        .expect("built-in default-pipeline.json must be valid")
+}
+
+fn load_pipeline_template(brief: Option<&Value>) -> PipelineTemplate {
+    // Try to read pipeline.stages from the brief itself
+    if let Some(brief_value) = brief {
+        if let Some(stages_value) = brief_value
+            .get("pipeline")
+            .and_then(|p| p.get("stages"))
+        {
+            if stages_value.is_object() {
+                if let Ok(stages) =
+                    serde_json::from_value::<HashMap<String, TemplateStage>>(stages_value.clone())
+                {
+                    if !stages.is_empty() {
+                        return PipelineTemplate {
+                            template_id: brief_value
+                                .get("pipeline")
+                                .and_then(|p| p.get("templateId"))
+                                .and_then(|v| v.as_str())
+                                .map(ToOwned::to_owned),
+                            stages,
+                        };
+                    }
+                }
+            }
         }
-    };
-
-    let all_tasks = STAGE_ORDER
-        .iter()
-        .flat_map(|stage| default_stage_blueprints(stage).into_iter().map(make_task))
-        .collect::<Vec<_>>();
-
-    let start_index = stage_index(start_stage);
-    all_tasks
-        .into_iter()
-        .filter(|task| stage_index(&task.stage) >= start_index)
-        .collect()
-}
-
-fn default_stage_blueprints(stage: &str) -> Vec<TaskBlueprint> {
-    match stage {
-        "survey" => vec![
-            TaskBlueprint {
-                id: "1",
-                title: "Define the research boundary",
-                description: "Clarify the topic scope, target venue, review criteria, and key research questions.",
-                stage: "survey",
-                priority: "high",
-                task_type: "exploration",
-                dependencies: &[],
-                inputs_needed: &["topic boundary", "target venue"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Survey/reports/domain-map.md",
-                    ".pipeline/docs/domain_map.md",
-                ],
-            },
-            TaskBlueprint {
-                id: "2",
-                title: "Build a traceable literature shortlist",
-                description: "Collect real papers, canonical links, and screening notes for the core problem area.",
-                stage: "survey",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["1"],
-                inputs_needed: &["seed query list"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Survey/reports/screening-notes.md",
-                    ".pipeline/docs/paper_bank.json",
-                ],
-            },
-            TaskBlueprint {
-                id: "3",
-                title: "Extract baseline methods and gaps",
-                description: "Summarize representative baselines, benchmark patterns, and unresolved gaps.",
-                stage: "survey",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["2"],
-                inputs_needed: &["screened paper list"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Survey/reports/gap-summary.md",
-                    ".pipeline/docs/gap_matrix.md",
-                ],
-            },
-        ],
-        "ideation" => vec![
-            TaskBlueprint {
-                id: "4",
-                title: "Generate candidate ideas",
-                description: "Turn the survey and gap map into several candidate directions with clear hypotheses.",
-                stage: "ideation",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["3"],
-                inputs_needed: &["gap summary"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Ideation/ideas/candidate-ideas.md",
-                    ".pipeline/docs/idea_board.json",
-                ],
-            },
-            TaskBlueprint {
-                id: "5",
-                title: "Check novelty and feasibility",
-                description: "Stress-test the candidates against prior work, resource constraints, and implementation risk.",
-                stage: "ideation",
-                priority: "high",
-                task_type: "exploration",
-                dependencies: &["4"],
-                inputs_needed: &["candidate ideas"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Ideation/ideas/novelty-check.md",
-                    ".pipeline/docs/idea_eval.md",
-                ],
-            },
-            TaskBlueprint {
-                id: "6",
-                title: "Select the lead idea",
-                description: "Choose the main angle, define the contribution story, and lock the experiment commitments.",
-                stage: "ideation",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["5"],
-                inputs_needed: &["novelty review"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Ideation/ideas/selected-idea.md",
-                    ".pipeline/docs/selected_idea.md",
-                ],
-            },
-        ],
-        "experiment" => vec![
-            TaskBlueprint {
-                id: "7",
-                title: "Design the experiment plan",
-                description: "Define implementation scope, datasets, metrics, baselines, and ablations.",
-                stage: "experiment",
-                priority: "high",
-                task_type: "implementation",
-                dependencies: &["6"],
-                inputs_needed: &["selected idea"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Experiment/analysis/experiment-plan.md",
-                    ".pipeline/docs/experiment_plan.md",
-                ],
-            },
-            TaskBlueprint {
-                id: "8",
-                title: "Prepare execution checkpoints",
-                description: "Break the experiment plan into build tasks, logging checkpoints, and analysis milestones.",
-                stage: "experiment",
-                priority: "medium",
-                task_type: "analysis",
-                dependencies: &["7"],
-                inputs_needed: &["experiment plan"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Experiment/analysis/checkpoints.md",
-                ],
-            },
-            TaskBlueprint {
-                id: "9",
-                title: "Summarize validated claims",
-                description: "Organize results, caveats, and claim-evidence links for the writing stage.",
-                stage: "experiment",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["8"],
-                inputs_needed: &["run logs", "analysis notes"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Experiment/analysis/result-summary.md",
-                    ".pipeline/docs/result_summary.md",
-                ],
-            },
-        ],
-        "publication" => vec![
-            TaskBlueprint {
-                id: "10",
-                title: "Draft the paper outline",
-                description: "Translate the validated research state into a section plan and writing checklist.",
-                stage: "publication",
-                priority: "high",
-                task_type: "writing",
-                dependencies: &["9"],
-                inputs_needed: &["validated claims", "figures"],
-                artifact_paths: &["main.tex", "sections/introduction.tex"],
-            },
-            TaskBlueprint {
-                id: "11",
-                title: "Audit references and evidence links",
-                description: "Check citations, claims, and reference formatting before the manuscript hardens.",
-                stage: "publication",
-                priority: "high",
-                task_type: "analysis",
-                dependencies: &["10"],
-                inputs_needed: &["draft outline", "reference list"],
-                artifact_paths: &["refs/references.bib"],
-            },
-            TaskBlueprint {
-                id: "12",
-                title: "Prepare submission assets",
-                description: "Finalize checklist items, figures, appendix needs, and submission-facing notes.",
-                stage: "publication",
-                priority: "medium",
-                task_type: "writing",
-                dependencies: &["11"],
-                inputs_needed: &["stable draft"],
-                artifact_paths: &["main.tex"],
-            },
-        ],
-        "promotion" => vec![
-            TaskBlueprint {
-                id: "13",
-                title: "Prepare slides and talk track",
-                description: "Turn the stable manuscript into slides, a talk narrative, and summary framing.",
-                stage: "promotion",
-                priority: "medium",
-                task_type: "delivery",
-                dependencies: &["12"],
-                inputs_needed: &["paper draft"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Promotion/slides",
-                    ".pipeline/docs/promo_plan.md",
-                ],
-            },
-            TaskBlueprint {
-                id: "14",
-                title: "Prepare release-facing assets",
-                description: "Draft release notes, project summary text, and downstream communication materials.",
-                stage: "promotion",
-                priority: "low",
-                task_type: "delivery",
-                dependencies: &["13"],
-                inputs_needed: &["slides", "paper summary"],
-                artifact_paths: &[
-                    ".viewerleaf/research/Promotion/homepage",
-                ],
-            },
-        ],
-        _ => Vec::new(),
     }
+    // Fallback: use built-in default template (compat migration)
+    load_default_template()
 }
+
+/// Generate tasks from a pipeline template for the given stages.
+///
+/// Behavior aligned with dr-claw:
+/// - Only generates for `start_stage` and subsequent stages
+/// - Skips stages that already have tasks in `existing_tasks`
+/// - For each stage:
+///   1. Blueprint tasks from `task_blueprints`
+///   2. "Define/Refine X" tasks for `required_elements` not covered by any blueprint
+///   3. A quality-gate review task if `quality_gate` is defined
+/// - `recommended_skills`: template stage declaration > stage-map fallback
+/// - Sequential dependencies within each stage
+fn generate_pipeline_tasks(
+    template: &PipelineTemplate,
+    start_stage: &str,
+    existing_tasks: &[ResearchTask],
+) -> Vec<ResearchTask> {
+    let start_idx = stage_index(start_stage);
+
+    // Find the next available numeric ID
+    let mut next_id: u32 = existing_tasks
+        .iter()
+        .filter_map(|t| t.id.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0)
+        + 1;
+
+    let existing_stages: BTreeSet<String> = existing_tasks
+        .iter()
+        .map(|t| t.stage.clone())
+        .collect();
+
+    let mut generated = Vec::new();
+
+    for stage_name in STAGE_ORDER.iter().filter(|s| stage_index(s) >= start_idx) {
+        // Skip stages that already have tasks
+        if existing_stages.contains(*stage_name) {
+            continue;
+        }
+
+        let template_stage = template.stages.get(*stage_name);
+
+        // Determine skills: template declaration > stage-map fallback
+        let stage_skills = template_stage
+            .map(|ts| ts.recommended_skills.clone())
+            .filter(|skills| !skills.is_empty())
+            .unwrap_or_else(|| stage_bundle_skill_ids(stage_name));
+
+        let blueprints = template_stage
+            .map(|ts| &ts.task_blueprints[..])
+            .unwrap_or_default();
+
+        let mut prev_id: Option<String> = None;
+
+        // 1. Blueprint tasks
+        for bp in blueprints {
+            let id = next_id.to_string();
+            next_id += 1;
+
+            let task_type = if bp.task_type.is_empty() {
+                "analysis"
+            } else {
+                &bp.task_type
+            };
+            let priority = if bp.priority.is_empty() {
+                "medium"
+            } else {
+                &bp.priority
+            };
+
+            // Skills: template stage-level > per-task from stage map
+            let task_skills = if !stage_skills.is_empty() {
+                let mut s = stage_skills.clone();
+                let fallback = recommended_skills(stage_name, task_type);
+                for skill in fallback {
+                    if !s.contains(&skill) {
+                        s.push(skill);
+                    }
+                }
+                s
+            } else {
+                recommended_skills(stage_name, task_type)
+            };
+
+            let next_action = build_next_action_prompt(stage_name, task_type, &task_skills);
+            let task_prompt =
+                default_task_prompt(stage_name, &bp.title, &bp.description, &next_action);
+
+            let dependencies = prev_id.iter().cloned().collect::<Vec<_>>();
+
+            generated.push(ResearchTask {
+                id: id.clone(),
+                title: bp.title.clone(),
+                description: bp.description.clone(),
+                status: "pending".into(),
+                stage: stage_name.to_string(),
+                priority: priority.to_string(),
+                dependencies,
+                task_type: task_type.to_string(),
+                inputs_needed: bp.inputs_needed.clone(),
+                suggested_skills: task_skills,
+                next_action_prompt: next_action,
+                artifact_paths: bp.artifact_paths.clone(),
+                task_prompt,
+                context_notes: String::new(),
+                last_updated_at: String::new(),
+                agent_entry_label: "Enter Agent".into(),
+            });
+
+            prev_id = Some(id);
+        }
+
+        // 2. Gap tasks for required_elements not covered by any blueprint
+        if let Some(ts) = template_stage {
+            let covered: BTreeSet<String> = blueprints
+                .iter()
+                .flat_map(|bp| {
+                    bp.title
+                        .to_ascii_lowercase()
+                        .split_whitespace()
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+
+            for element in &ts.required_elements {
+                let keywords: Vec<String> = element
+                    .replace('_', " ")
+                    .split_whitespace()
+                    .map(|w| w.to_ascii_lowercase())
+                    .collect();
+                let already_covered = keywords.iter().any(|kw| covered.contains(kw));
+                if already_covered {
+                    continue;
+                }
+
+                let id = next_id.to_string();
+                next_id += 1;
+                let readable = element.replace('_', " ");
+                let title = format!("Define/Refine {readable}");
+                let description = format!(
+                    "Ensure the required element '{readable}' is documented and traceable in the project artifacts."
+                );
+                let task_skills = recommended_skills(stage_name, "exploration");
+                let next_action =
+                    build_next_action_prompt(stage_name, "exploration", &task_skills);
+                let task_prompt =
+                    default_task_prompt(stage_name, &title, &description, &next_action);
+                let dependencies = prev_id.iter().cloned().collect::<Vec<_>>();
+
+                generated.push(ResearchTask {
+                    id: id.clone(),
+                    title,
+                    description,
+                    status: "pending".into(),
+                    stage: stage_name.to_string(),
+                    priority: "medium".into(),
+                    dependencies,
+                    task_type: "exploration".into(),
+                    inputs_needed: vec![readable],
+                    suggested_skills: task_skills,
+                    next_action_prompt: next_action,
+                    artifact_paths: Vec::new(),
+                    task_prompt,
+                    context_notes: String::new(),
+                    last_updated_at: String::new(),
+                    agent_entry_label: "Enter Agent".into(),
+                });
+
+                prev_id = Some(id);
+            }
+
+            // 3. Quality gate review task
+            if !ts.quality_gate.is_empty() {
+                let id = next_id.to_string();
+                next_id += 1;
+                let title = format!("{} Quality Gate Review", stage_label(stage_name));
+                let description = ts.quality_gate.clone();
+                let task_skills = recommended_skills(stage_name, "review");
+                let next_action =
+                    build_next_action_prompt(stage_name, "review", &task_skills);
+                let task_prompt =
+                    default_task_prompt(stage_name, &title, &description, &next_action);
+                let dependencies = prev_id.iter().cloned().collect::<Vec<_>>();
+
+                generated.push(ResearchTask {
+                    id: id.clone(),
+                    title,
+                    description,
+                    status: "pending".into(),
+                    stage: stage_name.to_string(),
+                    priority: "high".into(),
+                    dependencies,
+                    task_type: "review".into(),
+                    inputs_needed: Vec::new(),
+                    suggested_skills: task_skills,
+                    next_action_prompt: next_action,
+                    artifact_paths: Vec::new(),
+                    task_prompt,
+                    context_notes: String::new(),
+                    last_updated_at: String::new(),
+                    agent_entry_label: "Enter Agent".into(),
+                });
+            }
+        }
+    }
+
+    generated
+}
+
 
 fn default_pipeline_config(start_stage: &str) -> Value {
     json!({
@@ -1104,6 +1122,12 @@ fn read_json_file(path: &Path) -> Option<Value> {
     serde_json::from_str::<Value>(&raw).ok()
 }
 
+enum BriefReadResult {
+    Missing,
+    InvalidJson,
+    Valid(Value, BriefMeta),
+}
+
 fn read_brief(path: &Path) -> BriefReadResult {
     if !path.exists() {
         return BriefReadResult::Missing;
@@ -1203,23 +1227,19 @@ pub fn initialize_research_stage(root: &Path, stage: &str) -> Result<()> {
         return Ok(());
     }
 
-    let stage_tasks = default_stage_blueprints(&normalized_stage)
+    // Load template from brief (or default fallback)
+    let brief_value = fs::read_to_string(&brief_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let template = load_pipeline_template(brief_value.as_ref());
+
+    // Generate tasks only for this specific stage
+    let stage_tasks = generate_pipeline_tasks(&template, &normalized_stage, &tasks)
         .into_iter()
-        .map(|blueprint| {
-            let stage_tasks = default_tasks(&normalized_stage);
-            stage_tasks
-                .into_iter()
-                .find(|task| task.id == blueprint.id)
-                .expect("stage blueprint task should exist")
-        })
+        .filter(|t| t.stage == normalized_stage)
         .collect::<Vec<_>>();
     tasks.extend(stage_tasks);
-    tasks.sort_by(|left, right| {
-        stage_index(&left.stage)
-            .cmp(&stage_index(&right.stage))
-            .then(status_rank(&left.status).cmp(&status_rank(&right.status)))
-            .then(left.id.cmp(&right.id))
-    });
+    sort_tasks(&mut tasks);
     write_tasks(&tasks_path, &tasks)?;
 
     let raw_brief = fs::read_to_string(&brief_path)?;
@@ -1250,6 +1270,71 @@ pub fn initialize_research_stage(root: &Path, stage: &str) -> Result<()> {
     fs::write(&brief_path, serde_json::to_string_pretty(&brief_json)?)?;
 
     Ok(())
+}
+
+/// Regenerate pipeline tasks from the template.
+///
+/// - If `force` is false, only generates for stages that have no existing tasks.
+/// - If `force` is true, replaces existing tasks for the target stage(s).
+/// - If `stage` is Some, only regenerates that stage; otherwise all stages from startStage onward.
+pub fn regenerate_pipeline_tasks(
+    root: &Path,
+    force: bool,
+    stage: Option<&str>,
+) -> Result<Vec<ResearchTask>> {
+    let brief_path = pipeline_root(root).join("docs").join("research_brief.json");
+    let tasks_path = pipeline_root(root).join("tasks").join("tasks.json");
+
+    let brief_value = fs::read_to_string(&brief_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    let template = load_pipeline_template(brief_value.as_ref());
+
+    let start_stage = brief_value
+        .as_ref()
+        .and_then(|v| v.get("pipeline"))
+        .and_then(|p| p.get("startStage"))
+        .and_then(|v| v.as_str())
+        .map(|s| normalize_stage(Some(s)))
+        .unwrap_or_else(|| "survey".into());
+
+    let effective_start = stage
+        .map(|s| normalize_stage(Some(s)))
+        .unwrap_or(start_stage);
+
+    let mut tasks = read_tasks(&tasks_path);
+
+    if force {
+        // Remove existing tasks for the target stages
+        let start_idx = stage_index(&effective_start);
+        let target_stages: Vec<&str> = if stage.is_some() {
+            vec![effective_start.as_str()]
+        } else {
+            STAGE_ORDER
+                .iter()
+                .filter(|s| stage_index(s) >= start_idx)
+                .copied()
+                .collect()
+        };
+        tasks.retain(|t| !target_stages.contains(&t.stage.as_str()));
+    }
+
+    let new_tasks = generate_pipeline_tasks(&template, &effective_start, &tasks);
+    let new_task_list = if stage.is_some() {
+        let target = normalize_stage(stage);
+        new_tasks
+            .into_iter()
+            .filter(|t| t.stage == target)
+            .collect()
+    } else {
+        new_tasks
+    };
+
+    tasks.extend(new_task_list.clone());
+    sort_tasks(&mut tasks);
+    write_tasks(&tasks_path, &tasks)?;
+
+    Ok(new_task_list)
 }
 
 pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
@@ -1835,11 +1920,41 @@ mod tests {
     }
 
     #[test]
+    fn template_loads_and_generates_survey_tasks() {
+        // Test 1: built-in template loads
+        let template = load_default_template();
+        assert!(template.stages.contains_key("survey"), "template must contain survey stage");
+        let survey = &template.stages["survey"];
+        assert!(!survey.task_blueprints.is_empty(), "survey must have blueprints");
+
+        // Test 2: generate tasks from template
+        let tasks = generate_pipeline_tasks(&template, "survey", &[]);
+        assert!(!tasks.is_empty(), "should generate at least one task for survey (got {} tasks)", tasks.len());
+        assert!(tasks.iter().any(|t| t.stage == "survey"), "should have survey tasks");
+
+        // Test 3: round-trip through brief serialization
+        let brief = default_research_brief("test", "survey");
+        let template_from_brief = load_pipeline_template(Some(&brief));
+        assert!(template_from_brief.stages.contains_key("survey"), "brief must round-trip survey stage");
+        let brief_survey = &template_from_brief.stages["survey"];
+        assert!(!brief_survey.task_blueprints.is_empty(), "brief survey must have blueprints on round-trip");
+    }
+
+    #[test]
     fn task_suggestion_can_add_custom_task() {
         let root = make_temp_project("research-add-task");
         let app_root = make_app_root();
         ensure_research_scaffold(&app_root, &root, Some("survey")).expect("scaffold");
         initialize_research_stage(&root, "survey").expect("initialize survey");
+
+        // Get the first generated task ID (dynamic, template-driven)
+        let initial_snapshot = load_research_snapshot(&root).expect("initial snapshot");
+        let first_task_id = initial_snapshot
+            .tasks
+            .first()
+            .expect("should have at least one survey task")
+            .id
+            .clone();
 
         apply_task_suggestion(
             &root,
@@ -1850,7 +1965,7 @@ mod tests {
                         stage: "survey".into(),
                         description: Some("Verify target venue boundaries.".into()),
                         priority: Some("high".into()),
-                        dependencies: Some(vec!["1".into()]),
+                        dependencies: Some(vec![first_task_id.clone()]),
                         next_action_prompt: Some(
                             "Review venue CFP and collect constraints.".into(),
                         ),
@@ -1870,7 +1985,7 @@ mod tests {
             .find(|task| task.title == "Check venue scope")
             .expect("custom task");
         assert_eq!(custom_task.stage, "survey");
-        assert_eq!(custom_task.dependencies, vec!["1"]);
+        assert_eq!(custom_task.dependencies, vec![first_task_id]);
     }
 
     #[test]
@@ -1878,12 +1993,18 @@ mod tests {
         let root = make_temp_project("research-remove-task");
         let app_root = make_app_root();
         ensure_research_scaffold(&app_root, &root, Some("survey")).expect("scaffold");
+        initialize_research_stage(&root, "survey").expect("initialize survey");
+
+        // Get the second generated task ID
+        let initial_snapshot = load_research_snapshot(&root).expect("initial snapshot");
+        assert!(initial_snapshot.tasks.len() >= 2, "should have at least 2 survey tasks");
+        let second_task_id = initial_snapshot.tasks[1].id.clone();
 
         apply_task_suggestion(
             &root,
             &ApplyResearchTaskSuggestionRequest {
                 operations: vec![ResearchTaskPlanOperation::Remove {
-                    task_id: "2".into(),
+                    task_id: second_task_id.clone(),
                 }],
                 working_memory: None,
             },
@@ -1891,6 +2012,6 @@ mod tests {
         .expect("remove task");
 
         let snapshot = load_research_snapshot(&root).expect("snapshot");
-        assert!(snapshot.tasks.iter().all(|task| task.id != "2"));
+        assert!(snapshot.tasks.iter().all(|task| task.id != second_task_id));
     }
 }

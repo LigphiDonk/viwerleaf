@@ -222,6 +222,7 @@ pub fn load_skill_prompts(
     let skills = resolve_enabled_skills(conn, skill_ids, current_stage.as_deref())?;
     let mut sections = Vec::new();
 
+    // ── Stage context (compact): current stage, active task, constraints ──
     let stage_context = build_project_stage_context(project_root, task_context);
     if !stage_context.is_empty() {
         sections.push(format!(
@@ -230,33 +231,27 @@ pub fn load_skill_prompts(
         ));
     }
 
-    if let Ok(project_agents) = fs::read_to_string(project_root.join("AGENTS.md")) {
-        let trimmed = project_agents.trim();
-        if !trimmed.is_empty() {
-            sections.push(format!(
-                "[[PROJECT_AGENTS_MD]]\n{}\n[[/PROJECT_AGENTS_MD]]",
-                trimmed
-            ));
+    // ── Skill index (slim): ID + one-line summary per skill ──
+    // The agent reads full skill bodies from the project's .agents/skills/
+    // or .claude/skills/ directories via CLI-native discovery.
+    if !skills.is_empty() {
+        let mut index_lines = vec!["Available ViewerLeaf skills:".to_string()];
+        for skill in &skills {
+            let summary = if skill.summary.is_empty() {
+                &skill.description
+            } else {
+                &skill.summary
+            };
+            let one_liner = summary
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim();
+            index_lines.push(format!("- {} — {}", skill.id, one_liner));
         }
-    }
-
-    for skill in skills {
-        let skill_md = Path::new(&skill.dir_path).join("SKILL.md");
-        let Ok(content) = fs::read_to_string(&skill_md) else {
-            continue;
-        };
-        let Some(parsed) = parse_skill_md(&content, Path::new(&skill.dir_path), &skill.source)
-        else {
-            continue;
-        };
         sections.push(format!(
-            "[[SKILL:{}]]\nname: {}\npath: {}\nsummary: {}\n\n{}\n[[/SKILL:{}]]",
-            parsed.manifest.id,
-            parsed.manifest.name,
-            parsed.manifest.dir_path,
-            parsed.manifest.summary,
-            parsed.body.trim(),
-            parsed.manifest.id
+            "[[SKILL_INDEX]]\n{}\n[[/SKILL_INDEX]]",
+            index_lines.join("\n")
         ));
     }
 
@@ -1090,9 +1085,12 @@ summary: Summary
         let prompt =
             load_skill_prompts(&conn, "codex", &root, &["skill-one".into()], None).expect("render");
         assert!(prompt.contains("currentStage: survey"));
-        assert!(prompt.contains("[[PROJECT_AGENTS_MD]]"));
-        assert!(prompt.contains("[[SKILL:skill-one]]"));
-        assert!(prompt.contains("# Body"));
+        // Environment-first: no full AGENTS.md/SKILL.md body injection
+        assert!(!prompt.contains("[[PROJECT_AGENTS_MD]]"), "should not inject full AGENTS.md body");
+        assert!(!prompt.contains("[[SKILL:skill-one]]"), "should not inject full skill body");
+        // Slim skill index with ID + summary
+        assert!(prompt.contains("[[SKILL_INDEX]]"), "should contain slim skill index");
+        assert!(prompt.contains("skill-one"), "index should list skill ID");
     }
 
     #[test]

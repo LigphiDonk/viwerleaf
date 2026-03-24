@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { desktop } from "../lib/desktop";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { 
   ExperimentRunState, 
   ExperimentRunStateStatus,
@@ -18,6 +19,13 @@ export interface UseAutoExperimentParams {
   filePath: string;
 }
 
+export interface ExperimentLogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  iteration: number;
+}
+
 export function useAutoExperiment({
   projectRoot,
   activeTaskContext,
@@ -27,6 +35,7 @@ export function useAutoExperiment({
   filePath,
 }: UseAutoExperimentParams) {
   const [runState, setRunState] = useState<ExperimentRunState | null>(null);
+  const [experimentLogs, setExperimentLogs] = useState<ExperimentLogEntry[]>([]);
 
   // Auto-resolve: if no explicit experiment task is active, pick the first
   // non-done experiment-stage task from the snapshot so the user can start
@@ -93,6 +102,22 @@ export function useAutoExperiment({
     return () => clearInterval(interval);
   }, [loadState]);
 
+  // Listen for experiment:log events from the backend daemon
+  useEffect(() => {
+    let cancelled = false;
+    const promise = listen<ExperimentLogEntry>("experiment:log", (event) => {
+      if (!cancelled) {
+        setExperimentLogs((prev) => [...prev.slice(-199), event.payload]);
+      }
+    });
+    return () => {
+      cancelled = true;
+      promise.then((fn) => fn());
+    };
+  }, []);
+
+  const clearLogs = useCallback(() => setExperimentLogs([]), []);
+
   /** Helper: invoke run_auto_experiment and return true on success. */
   const tryStartDaemon = async (config: ExperimentLoopConfig): Promise<boolean> => {
     try {
@@ -130,6 +155,8 @@ export function useAutoExperiment({
     // so there's no race between frontend write and daemon read.
     const started = await tryStartDaemon(config);
     if (started) {
+      // Clear logs from previous run
+      setExperimentLogs([]);
       // Optimistically update UI; the 2s poll will pick up real state
       setRunState({
         status: "running",
@@ -183,6 +210,8 @@ export function useAutoExperiment({
 
   return {
     runState,
+    experimentLogs,
+    clearLogs,
     startExperiment,
     pauseExperiment,
     resumeExperiment,

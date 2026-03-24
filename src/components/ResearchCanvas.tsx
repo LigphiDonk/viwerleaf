@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   flattenTasksForTree,
@@ -678,6 +678,15 @@ export function ResearchCanvas({
   );
   const [collapsedStages, setCollapsedStages] = useState<Set<ResearchStage>>(new Set());
   const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
+  const [showExpLogs, setShowExpLogs] = useState(false);
+  const expLogScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll experiment log panel to bottom on new entries
+  useEffect(() => {
+    if (showExpLogs && expLogScrollRef.current) {
+      expLogScrollRef.current.scrollTop = expLogScrollRef.current.scrollHeight;
+    }
+  }, [showExpLogs, autoExperiment.experimentLogs.length]);
 
   const handleToggleCollapse = useCallback((stage: ResearchStage) => {
     setCollapsedStages((prev) => {
@@ -924,6 +933,39 @@ export function ResearchCanvas({
                 >
                   {isZh ? "▶ 启动" : "▶ Start"}
                 </button>
+              )}
+              {/* Log toggle */}
+              <button
+                type="button"
+                className={`experiment-quick-bar__btn${showExpLogs ? " experiment-quick-bar__btn--active" : ""}`}
+                onClick={() => setShowExpLogs((v) => !v)}
+                title={isZh ? "查看日志" : "Toggle Logs"}
+              >
+                📋{autoExperiment.experimentLogs.length > 0 && (
+                  <span className="experiment-quick-bar__log-count">{autoExperiment.experimentLogs.length}</span>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Experiment Log Panel (terminal-style, collapsible) ── */}
+        {localizedResearch.experimentLoop && showExpLogs && (
+          <div className="experiment-log-panel">
+            <div className="experiment-log-panel__scroll" ref={expLogScrollRef}>
+              {autoExperiment.experimentLogs.length === 0 ? (
+                <div className="experiment-log-panel__empty">
+                  {isZh ? "等待实验日志…" : "Waiting for experiment logs…"}
+                </div>
+              ) : (
+                autoExperiment.experimentLogs.map((log, i) => (
+                  <div key={i} className={`experiment-log-panel__line experiment-log-panel__line--${log.level}`}>
+                    <span className="experiment-log-panel__time">
+                      {new Date(Number(log.timestamp)).toLocaleTimeString()}
+                    </span>
+                    <span className="experiment-log-panel__msg">{log.message}</span>
+                  </div>
+                ))
               )}
             </div>
           </div>

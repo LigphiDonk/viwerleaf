@@ -418,6 +418,35 @@ pub async fn apply_research_task_suggestion(
 }
 
 #[tauri::command]
+pub async fn regenerate_pipeline_tasks(
+    app_handle: AppHandle,
+    force: Option<bool>,
+    stage: Option<String>,
+) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+        research::regenerate_pipeline_tasks(
+            Path::new(&root_path),
+            force.unwrap_or(false),
+            stage.as_deref(),
+        )
+        .map_err(|err| err.to_string())?;
+        project::load_project_snapshot(&state).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn apply_agent_patch(
     state: State<'_, AppState>,
     file_path: String,

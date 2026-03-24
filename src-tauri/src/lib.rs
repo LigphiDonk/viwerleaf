@@ -84,6 +84,7 @@ pub fn run() {
             commands::ensure_research_scaffold,
             commands::initialize_research_stage,
             commands::apply_research_task_suggestion,
+            commands::regenerate_pipeline_tasks,
             commands::launch_workspace_window,
             commands::sync_app_menu,
             commands::save_file,

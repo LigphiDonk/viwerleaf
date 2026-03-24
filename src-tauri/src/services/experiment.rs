@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::models::{AgentMessage, AgentTaskContext};
 use crate::services::agent;
@@ -79,6 +79,32 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Log entry emitted to the frontend via `experiment:log` events.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ExperimentLogEntry {
+    timestamp: String,
+    level: String,
+    message: String,
+    iteration: u32,
+}
+
+/// Emit a structured log event to the frontend.
+fn emit_log(app_handle: &AppHandle, level: &str, message: &str, iteration: u32) {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .to_string();
+    let entry = ExperimentLogEntry {
+        timestamp,
+        level: level.to_string(),
+        message: message.to_string(),
+        iteration,
+    };
+    let _ = app_handle.emit("experiment:log", &entry);
+}
+
 pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> Result<(), String> {
     // Single-instance guard
     if EXPERIMENT_RUNNING
@@ -146,6 +172,13 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
             );
         }
 
+        emit_log(&app_handle, "info", &format!("🧪 Auto-experiment started (max {} iterations, metric: {} {} {})",
+            payload.loop_config.max_iterations,
+            payload.loop_config.success_metric,
+            payload.loop_config.success_direction,
+            payload.loop_config.success_threshold,
+        ), 0);
+
         loop {
             // ── Check stop flag at top of every iteration ──
             if EXPERIMENT_STOP_FLAG.load(Ordering::SeqCst) {
@@ -157,6 +190,7 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                     &run_state_path,
                     serde_json::to_string_pretty(&run_state).unwrap(),
                 );
+                emit_log(&app_handle, "warn", "⏹ Experiment stopped by user", run_state.iterations);
                 break;
             }
 
@@ -240,9 +274,13 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
             }
 
             // 2. Build injection prompt
+            let iter_num = run_state.iterations + 1;
+            emit_log(&app_handle, "info", &format!("🚀 Starting iteration {}/{}",
+                iter_num, payload.loop_config.max_iterations), iter_num);
+
             let mut prompt = format!(
                 "Starting auto-experiment iteration {}/{}...\n",
-                run_state.iterations + 1,
+                iter_num,
                 payload.loop_config.max_iterations
             );
             if let Some(best) = run_state.best_metric_value {
@@ -271,6 +309,8 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                 payload.loop_config.success_metric, payload.loop_config.success_metric
             ));
 
+            emit_log(&app_handle, "info", "🤖 Calling AI agent...", iter_num);
+
             // 3. Call Agent (Blocks until complete or error)
             // Pass &EXPERIMENT_SIDECAR_PID directly so run_agent writes the PID
             // into our dedicated atomic without polling the global slot.
@@ -291,6 +331,7 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
             EXPERIMENT_SIDECAR_PID.store(0, Ordering::SeqCst);
 
             run_state.iterations += 1;
+            let iter_num = run_state.iterations;
 
             // ── Check stop flag after agent returns ──
             if EXPERIMENT_STOP_FLAG.load(Ordering::SeqCst) {
@@ -299,12 +340,17 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                     &run_state_path,
                     serde_json::to_string_pretty(&run_state).unwrap(),
                 );
+                emit_log(&app_handle, "warn", "⏹ Experiment stopped by user", iter_num);
                 break;
             }
 
             if result.is_err() {
                 run_state.current_failures += 1;
+                emit_log(&app_handle, "error", &format!("❌ Agent failed (failures: {}/{})",
+                    run_state.current_failures, payload.loop_config.max_failures), iter_num);
             } else {
+                emit_log(&app_handle, "info", "✅ Agent completed successfully", iter_num);
+
                 // Orchestrator native evaluation via SSH
                 if let Some(node) = crate::services::compute_node::get_active_node() {
                     let project_name = std::path::Path::new(&root_path)
@@ -322,6 +368,8 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                         payload.loop_config.eval_command
                     );
 
+                    emit_log(&app_handle, "eval", &format!("📊 Running eval: {}", payload.loop_config.eval_command), iter_num);
+
                     match execute_eval_command(&node, &full_cmd) {
                         Ok(child) => {
                             // Store PID for external cancellation
@@ -337,6 +385,25 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                                 Ok(output) if output.status.success() => {
                                     let eval_output =
                                         String::from_utf8_lossy(&output.stdout).to_string();
+                                    let eval_stderr =
+                                        String::from_utf8_lossy(&output.stderr).to_string();
+
+                                    // Log eval output (truncated)
+                                    let truncated_out = if eval_output.len() > 500 {
+                                        format!("{}…", &eval_output[..500])
+                                    } else {
+                                        eval_output.clone()
+                                    };
+                                    emit_log(&app_handle, "eval", &format!("📊 Eval stdout:\n{}", truncated_out.trim()), iter_num);
+                                    if !eval_stderr.trim().is_empty() {
+                                        let truncated_err = if eval_stderr.len() > 300 {
+                                            format!("{}…", &eval_stderr[..300])
+                                        } else {
+                                            eval_stderr.clone()
+                                        };
+                                        emit_log(&app_handle, "warn", &format!("⚠️ Eval stderr:\n{}", truncated_err.trim()), iter_num);
+                                    }
+
                                     let mut parsed_val = None;
 
                                     for line in eval_output.lines() {
@@ -367,6 +434,20 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
                                             run_state.best_metric_value = Some(val);
                                         }
 
+                                        emit_log(&app_handle, "info", &format!(
+                                            "📈 {}={:.4} (best={}, threshold={})",
+                                            payload.loop_config.success_metric, val,
+                                            run_state.best_metric_value.map(|v| format!("{:.4}", v)).unwrap_or("—".into()),
+                                            payload.loop_config.success_threshold
+                                        ), iter_num);
+
+                                        // Record in run_history
+                                        run_state.run_history.push(serde_json::json!({
+                                            "iteration": iter_num,
+                                            "metricValue": val,
+                                            "status": "success"
+                                        }));
+
                                         let meets_goal =
                                             if payload.loop_config.success_direction == "max" {
                                                 val >= payload.loop_config.success_threshold
@@ -376,23 +457,71 @@ pub fn run_auto_experiment(app_handle: AppHandle, payload: AutomatePayload) -> R
 
                                         if meets_goal {
                                             run_state.status = "completed".into();
+                                            emit_log(&app_handle, "info", &format!(
+                                                "🎯 Goal met! {}={:.4} {} {}",
+                                                payload.loop_config.success_metric, val,
+                                                if payload.loop_config.success_direction == "max" { "≥" } else { "≤" },
+                                                payload.loop_config.success_threshold
+                                            ), iter_num);
                                             mark_experiment_task_done(&root_path, &task_id);
                                         }
                                     } else {
                                         run_state.current_failures += 1;
+                                        emit_log(&app_handle, "warn", &format!(
+                                            "⚠️ Could not parse metric '{}' from eval output (failures: {}/{})",
+                                            payload.loop_config.success_metric,
+                                            run_state.current_failures, payload.loop_config.max_failures
+                                        ), iter_num);
+                                        run_state.run_history.push(serde_json::json!({
+                                            "iteration": iter_num,
+                                            "metricValue": null,
+                                            "status": "parse_error"
+                                        }));
                                     }
                                 }
-                                _ => {
+                                Ok(output) => {
                                     run_state.current_failures += 1;
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    emit_log(&app_handle, "error", &format!(
+                                        "❌ Eval command failed (exit code: {})\n{}",
+                                        output.status.code().unwrap_or(-1),
+                                        if stderr.len() > 300 { &stderr[..300] } else { &stderr }
+                                    ), iter_num);
+                                    run_state.run_history.push(serde_json::json!({
+                                        "iteration": iter_num,
+                                        "metricValue": null,
+                                        "status": "eval_failed"
+                                    }));
+                                }
+                                Err(e) => {
+                                    run_state.current_failures += 1;
+                                    emit_log(&app_handle, "error", &format!("❌ Eval process error: {}", e), iter_num);
+                                    run_state.run_history.push(serde_json::json!({
+                                        "iteration": iter_num,
+                                        "metricValue": null,
+                                        "status": "eval_error"
+                                    }));
                                 }
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
                             run_state.current_failures += 1;
+                            emit_log(&app_handle, "error", &format!("❌ Failed to spawn eval SSH: {}", e), iter_num);
+                            run_state.run_history.push(serde_json::json!({
+                                "iteration": iter_num,
+                                "metricValue": null,
+                                "status": "ssh_error"
+                            }));
                         }
                     }
                 } else {
                     run_state.current_failures += 1;
+                    emit_log(&app_handle, "error", "❌ No active compute node configured", iter_num);
+                    run_state.run_history.push(serde_json::json!({
+                        "iteration": iter_num,
+                        "metricValue": null,
+                        "status": "no_node"
+                    }));
                 }
             }
 

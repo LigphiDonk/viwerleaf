@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import QRCode from "qrcode";
 import type { AppLocale } from "../types";
 import { desktop } from "../lib/desktop";
 
@@ -39,6 +40,7 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
     message: isZh ? "未连接" : "Not connected",
   });
   const [qrInfo, setQrInfo] = useState<QrCodeInfo | null>(null);
+  const [qrDataUri, setQrDataUri] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isBinding, setIsBinding] = useState(false);
@@ -93,7 +95,28 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
     }
     setIsBinding(false);
     setQrInfo(null);
+    setQrDataUri(null);
   }, []);
+
+  // Generate QR code data URI from the URL returned by the API
+  useEffect(() => {
+    if (!qrInfo?.qrUrl) {
+      setQrDataUri(null);
+      return;
+    }
+    // If it's already a data URI or a direct image URL, use as-is
+    if (qrInfo.qrUrl.startsWith("data:")) {
+      setQrDataUri(qrInfo.qrUrl);
+      return;
+    }
+    // Otherwise generate a QR code image from the URL
+    QRCode.toDataURL(qrInfo.qrUrl, { width: 280, margin: 2, errorCorrectionLevel: "M" })
+      .then((dataUri: string) => setQrDataUri(dataUri))
+      .catch((err: Error) => {
+        console.error("[WeChat QR] failed to generate QR code:", err);
+        setQrDataUri(null);
+      });
+  }, [qrInfo?.qrUrl]);
 
   async function handleStartBinding() {
     setError("");
@@ -227,20 +250,17 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
         {isBinding && qrInfo && (
           <div className="wechat-qr-container">
             <div className="wechat-qr-frame">
-              <img
-                src={qrInfo.qrUrl}
-                alt="WeChat QR Code"
-                className="wechat-qr-image"
-                onError={(e) => {
-                  console.error("[WeChat QR] image failed to load, qrUrl:", qrInfo.qrUrl.slice(0, 100));
-                  (e.target as HTMLImageElement).style.display = "none";
-                  const fallback = (e.target as HTMLImageElement).parentElement?.querySelector(".wechat-qr-fallback") as HTMLElement;
-                  if (fallback) fallback.style.display = "block";
-                }}
-              />
-              <div className="wechat-qr-fallback" style={{ display: "none", wordBreak: "break-all", fontSize: 11, color: "var(--text-secondary)", padding: 8, textAlign: "center" }}>
-                {isZh ? "二维码加载失败，请检查 API 地址是否正确" : "QR code failed to load. Please check API URL."}
-              </div>
+              {qrDataUri ? (
+                <img
+                  src={qrDataUri}
+                  alt="WeChat QR Code"
+                  className="wechat-qr-image"
+                />
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 220, height: 220, color: "var(--text-secondary)", fontSize: 13 }}>
+                  {isZh ? "正在生成二维码…" : "Generating QR code…"}
+                </div>
+              )}
             </div>
             <div className="wechat-qr-hint">
               {isZh
