@@ -11,7 +11,7 @@ use crate::models::{
     AgentContext, AgentMcpServerConfig, AgentMessage, AgentProvider, AgentRequest, AgentRunResult,
     AgentSessionSummary, AgentTaskContext, StreamChunk, UsageInfo,
 };
-use crate::services::{compute_node, profile, provider, sidecar, skill};
+use crate::services::{compute_node, profile, provider, skill};
 use crate::state::AppState;
 
 use std::sync::atomic::Ordering;
@@ -322,7 +322,7 @@ pub fn run_agent(
 
     let request = AgentRequest {
         session_id: session_id.clone(),
-        remote_session_id,
+        remote_session_id: remote_session_id.clone(),
         profile_id: profile_id.to_string(),
         provider: AgentProvider {
             vendor: prov.vendor.clone(),
@@ -335,7 +335,7 @@ pub fn run_agent(
             reasoning_effort: read_provider_reasoning_effort(&prov.meta_json),
             mcp_servers: read_provider_mcp_servers(&prov.meta_json),
         },
-        system_prompt,
+        system_prompt: system_prompt.clone(),
         user_message: user_message.clone(),
         context: AgentContext {
             project_root: project_root.clone(),
@@ -345,69 +345,9 @@ pub fn run_agent(
             task_context: task_context.cloned(),
         },
     };
-    let payload = serde_json::to_string(&request)?;
+    let _payload = serde_json::to_string(&request)?;
 
-    // ── OpenClaw path: bypass sidecar, use WebSocket bridge ──
-    if prov.vendor == "openclaw" {
-        let ws_url = format!("ws://127.0.0.1:{}", crate::services::openclaw_lifecycle::DEFAULT_GATEWAY_PORT);
-        let (full_response, done_usage, remote_sid) =
-            crate::services::openclaw_bridge::send_and_stream(
-                app_handle,
-                &ws_url,
-                &user_message,
-                &request.system_prompt,
-                &project_root,
-                &session_id,
-            )
-            .map_err(|e| anyhow::anyhow!("OpenClaw bridge error: {e}"))?;
-
-        // Persist assistant message
-        if !full_response.trim().is_empty() {
-            persist_assistant_message(state, &session_id, profile_id, &full_response)?;
-        }
-
-        if let Some(rsid) = remote_sid.as_deref() {
-            persist_remote_session_id(state, &session_id, rsid)?;
-        }
-
-        let usage = done_usage.unwrap_or_else(|| UsageInfo {
-            input_tokens: 0,
-            output_tokens: 0,
-            model: "openclaw".into(),
-        });
-
-        {
-            let conn = state.db.lock().expect("db lock poisoned");
-            let _ = conn.execute(
-                "INSERT INTO usage_logs (id, session_id, provider_id, model, input_tokens, output_tokens) VALUES (?1,?2,?3,?4,?5,?6)",
-                params![
-                    Uuid::new_v4().to_string(),
-                    session_id,
-                    profile.provider_id,
-                    usage.model.clone(),
-                    usage.input_tokens,
-                    usage.output_tokens
-                ],
-            );
-        }
-
-        let _ = app_handle.emit(
-            "agent:stream",
-            &StreamChunk::Done {
-                usage,
-                remote_session_id: remote_sid,
-            },
-        );
-
-        return Ok(AgentRunResult {
-            session_id: Some(session_id),
-            message: None,
-            suggested_patch: None,
-            full_output: Some(full_response),
-        });
-    }
-
-    // ── Legacy sidecar path (claude-code / codex) ──
+    // ── Direct CLI path (claude-code / codex) ──
     // Session and user message are already inserted by prepare_user_message().
     // Only insert here if called without a prior prepare (e.g. in tests or
     // direct call path without the command wrapper).
@@ -442,8 +382,15 @@ pub fn run_agent(
         }
     }
 
-    let (mut child, sidecar_stdin) = sidecar::spawn_sidecar_with_stdin(state, "agent", &payload)
-        .with_context(|| "failed to spawn agent sidecar".to_string())?;
+    let (mut child, cli_stdin) = crate::services::cli_agent::spawn_cli_agent(
+        state,
+        &prov.vendor,
+        &user_message,
+        &project_root,
+        &system_prompt,
+        remote_session_id.as_deref(),
+    )
+    .with_context(|| "failed to spawn CLI agent".to_string())?;
 
     // Store sidecar PID and stdin handle for cancellation / permission response support
     {
@@ -463,7 +410,7 @@ pub fn run_agent(
             .active_sidecar_stdin
             .lock()
             .expect("active_sidecar_stdin lock poisoned");
-        *stdin_slot = Some(sidecar_stdin);
+        *stdin_slot = Some(cli_stdin);
     }
 
     let stdout = child.stdout.take().context("sidecar stdout unavailable")?;

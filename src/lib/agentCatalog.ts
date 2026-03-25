@@ -1,6 +1,6 @@
 import type { ProviderConfig, ProviderMcpServerConfig } from "../types";
 
-export type AgentVendor = "claude-code" | "codex" | "openclaw";
+export type AgentVendor = "claude-code" | "codex";
 export type AgentReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface AgentModelFamily {
@@ -161,39 +161,6 @@ export const AGENT_BRANDS: Record<AgentVendor, AgentBrand> = {
       },
     ],
   },
-  openclaw: {
-    label: "OpenClaw",
-    icon: "🦀",
-    gradient: "linear-gradient(135deg, #f0f0ff 0%, #e0e0ff 52%, #d0d0ff 100%)",
-    accentColor: "#6d28d9",
-    accentBg: "rgba(109, 40, 217, 0.12)",
-    borderActive: "#7c3aed",
-    description: "OpenClaw 科研助手 (本地 Gateway)",
-    defaultModel: "auto",
-    models: [
-      {
-        value: "auto",
-        label: "自动选择",
-        description: "使用 OpenClaw Gateway 配置的默认模型。",
-        badge: "Default",
-      },
-      {
-        value: "claude-opus-4-6",
-        label: "Claude Opus 4.6",
-        description: "通过 OpenClaw 调用 Anthropic Opus 模型。",
-      },
-      {
-        value: "claude-sonnet-4-6",
-        label: "Claude Sonnet 4.6",
-        description: "通过 OpenClaw 调用 Anthropic Sonnet 模型。",
-      },
-      {
-        value: "gpt-5.4",
-        label: "GPT-5.4",
-        description: "通过 OpenClaw 调用 OpenAI 模型。",
-      },
-    ],
-  },
 };
 
 export const FALLBACK_BRAND = {
@@ -209,7 +176,7 @@ export const FALLBACK_BRAND = {
 } satisfies AgentBrand;
 
 export function isAgentVendor(vendor: string): vendor is AgentVendor {
-  return vendor === "claude-code" || vendor === "codex" || vendor === "openclaw";
+  return vendor === "claude-code" || vendor === "codex";
 }
 
 export function getAgentBrand(vendor: string) {

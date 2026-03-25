@@ -75,16 +75,6 @@ pub fn run() {
             });
             app.manage(services::wechat_bridge::WeChatBridgeState::default());
 
-            // ── OpenClaw Gateway ──
-            let oc_state = services::openclaw_lifecycle::OpenClawGatewayState::default();
-            // Start Gateway if a workspace is open
-            if let Some(ref ws) = workspace_root {
-                if let Err(e) = services::openclaw_lifecycle::start_gateway(&oc_state, Some(ws)) {
-                    eprintln!("[OpenClaw] Failed to start Gateway on launch: {e}");
-                }
-            }
-            app.manage(oc_state);
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -186,10 +176,6 @@ pub fn run() {
             commands::start_wechat_listener,
             commands::stop_wechat_listener,
             commands::send_wechat_reply,
-            // OpenClaw Gateway
-            commands::get_openclaw_status,
-            commands::start_openclaw_gateway,
-            commands::restart_openclaw_gateway,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");

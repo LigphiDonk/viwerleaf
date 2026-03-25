@@ -3387,11 +3387,161 @@ button {
   flex-direction: column;
   height: 100%;
   background:
-    radial-gradient(circle at top, rgba(15, 118, 110, 0.05), transparent 28%),
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand-accent, #0f766e) 5%, transparent), transparent 28%),
     linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
   color: var(--text-primary);
   font-size: 14px;
   overflow: hidden;
+}
+
+/* ─── Brand header strip ─────────────────────────────────── */
+.ag-brand-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px);
+  transition: background 0.4s ease;
+}
+
+.ag-brand-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ag-brand-strip-icon {
+  font-size: 16px;
+  animation: ag-brand-float 3s ease-in-out infinite;
+}
+@keyframes ag-brand-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.ag-brand-strip-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--brand-accent, #0f766e);
+}
+
+.ag-brand-strip-dot {
+  color: var(--brand-accent, #0f766e);
+  opacity: 0.4;
+  font-size: 14px;
+}
+
+.ag-brand-strip-desc {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--brand-accent, #0f766e);
+  opacity: 0.65;
+}
+
+.ag-brand-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ag-brand-strip-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  animation: ag-live-pulse 1.5s ease-in-out infinite;
+}
+@keyframes ag-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── Enhanced user bubble ─────────────────────────────── */
+.ag-user-bubble {
+  max-width: min(88%, 560px);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 20px;
+  padding: 14px 16px;
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.04),
+    0 10px 26px rgba(15, 23, 42, 0.05);
+  font-size: 13.5px;
+  color: var(--text-primary);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  transition: box-shadow 0.3s ease;
+}
+.ag-user-bubble:hover {
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.04),
+    0 14px 32px rgba(15, 23, 42, 0.08);
+}
+
+/* ─── Enhanced tool card (glassmorphism) ────────────────── */
+.ag-tool-card {
+  margin-bottom: 10px;
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.78));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 10px 22px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.ag-tool-card:hover {
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 14px 32px rgba(15, 23, 42, 0.08);
+}
+
+/* ─── Enhanced empty state with floating animation ─────── */
+.ag-empty-glyph {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--brand-accent, var(--accent-primary));
+  background: var(--brand-accent-bg, rgba(15, 118, 110, 0.08));
+  animation: ag-glyph-float 4s ease-in-out infinite;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--brand-accent, #0f766e) 10%, transparent);
+}
+@keyframes ag-glyph-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.04); }
+}
+
+/* ─── Enhanced input focus ──────────────────────────────── */
+.ag-input-wrap:focus-within {
+  border-color: var(--brand-border, var(--accent-primary));
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--brand-accent, #0f766e) 8%, transparent),
+    0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+/* ─── Enhanced send button ─────────────────────────────── */
+.ag-send-btn:not(:disabled) {
+  background: var(--brand-accent, var(--accent-primary));
+}
+.ag-send-btn:hover:not(:disabled) {
+  background: var(--brand-border, var(--accent-primary-hover));
 }
 
 .ag-session-bar {

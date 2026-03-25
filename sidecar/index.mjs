@@ -52,22 +52,6 @@ async function main() {
   const command = process.argv[2];
 
   switch (command) {
-    case "agent": {
-      const payload = await parsePayload();
-      const vendor = payload.provider?.vendor;
-
-      if (vendor === "codex") {
-        const { runCodex } = await import("./runners/codex-runner.mjs");
-        await runCodex(payload);
-      } else {
-        // Default to Claude Code for "claude-code" or any other vendor
-        const { runClaudeCode } = await import(
-          "./runners/claude-code-runner.mjs"
-        );
-        await runClaudeCode(payload);
-      }
-      break;
-    }
     case "detect-cli": {
       const { detectAllCliAgents } = await import("./utils/detect-cli.mjs");
       const result = await detectAllCliAgents();

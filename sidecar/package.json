@@ -6,9 +6,7 @@
     "build": "esbuild index.mjs --bundle --platform=node --format=esm --outfile=dist/index.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "*",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@openai/codex-sdk": "*"
+    "@modelcontextprotocol/sdk": "^1.27.1"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"

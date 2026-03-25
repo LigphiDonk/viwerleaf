@@ -1,14 +1,12 @@
 use std::path::Path;
 
 pub mod agent;
+pub mod cli_agent;
 pub mod compile;
 pub mod compute_node;
 pub mod experiment;
 pub mod figure;
 pub mod literature;
-pub mod openclaw_bridge;
-pub mod openclaw_lifecycle;
-pub mod openclaw_skills_sync;
 pub mod profile;
 pub mod project;
 pub mod provider;

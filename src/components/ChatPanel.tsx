@@ -1884,6 +1884,11 @@ export function ChatPanel({
   const [sessionQuery, setSessionQuery] = useState("");
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<string[]>(() => Array.from(_appliedSuggestionKeys));
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeVendorBrand = useMemo(() => {
+    const prov = providers.find((p) => p.id === activeProviderId) ?? providers.find((p) => p.id === activeProfile?.providerId);
+    const vendor = prov && isAgentVendor(prov.vendor) ? prov.vendor : "claude-code";
+    return getAgentBrand(vendor);
+  }, [providers, activeProviderId, activeProfile]);
   const filteredSessions = useMemo(() => {
     const keyword = sessionQuery.trim().toLowerCase();
     if (!keyword) {
@@ -2175,7 +2180,20 @@ export function ChatPanel({
     Boolean(streamError);
 
   return (
-    <div className="ag-panel">
+    <div className="ag-panel" style={{ "--brand-accent": activeVendorBrand.accentColor, "--brand-gradient": activeVendorBrand.gradient, "--brand-accent-bg": activeVendorBrand.accentBg, "--brand-border": activeVendorBrand.borderActive } as React.CSSProperties}>
+      {/* Brand header strip */}
+      <div className="ag-brand-strip" style={{ background: activeVendorBrand.gradient }}>
+        <div className="ag-brand-strip-left">
+          <span className="ag-brand-strip-icon">{activeVendorBrand.icon}</span>
+          <span className="ag-brand-strip-name">{activeVendorBrand.label}</span>
+          <span className="ag-brand-strip-dot">·</span>
+          <span className="ag-brand-strip-desc">{activeVendorBrand.description}</span>
+        </div>
+        <div className="ag-brand-strip-right">
+          {isStreaming && <span className="ag-brand-strip-live">● LIVE</span>}
+        </div>
+      </div>
+
       <div className="ag-session-bar">
         <div className="ag-session-actions">
           <button
@@ -2336,7 +2354,7 @@ export function ChatPanel({
       <div className="ag-messages" ref={messagesRef} onScroll={handleMessagesScroll}>
         {!hasConversationContent && !isStreaming && (
           <div className="ag-empty">
-            <div className="ag-empty-glyph">✦</div>
+            <div className="ag-empty-glyph">{activeVendorBrand.icon}</div>
             <div className="ag-empty-title">开始一个新对话</div>
             <div className="ag-empty-sub">发送消息，或从历史对话里继续上一次上下文。</div>
           </div>
