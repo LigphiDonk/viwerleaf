@@ -1,129 +1,114 @@
 ---
 id: remote-experiment
 name: Remote Experiment Execution
-version: 1.0.0
-stages: [experiment]
+version: 2.0.0
+stages: []
 tools: [bash, read_file, write_file]
-description: 在远程计算节点上自主执行实验、解析指标、决策优化方向
-summary: Autonomous remote experiment execution via compute-helper CLI — sync, run, collect, evaluate, iterate
+description: 通过 compute-helper CLI 在远程服务器上自主执行、调试、迭代
+summary: Autonomous remote code execution workflow — edit locally, sync, run remotely, analyze output, iterate
 primaryIntent: remote_experiment_execution
 capabilities:
   - remote_code_sync
   - remote_command_execution
-  - metric_parsing
+  - iterative_debugging
   - autonomous_optimization
 domains:
+  - general
   - machine_learning
-  - reinforcement_learning
+  - data_processing
 keywords:
   - experiment
   - remote
-  - gpu
-  - training
-  - evaluation
+  - server
+  - ssh
+  - sync
   - compute-helper
+  - iterate
 ---
 
 # Remote Experiment Execution
 
-你可以通过 `compute-helper` CLI 在远程 GPU 服务器上自主执行实验。
+你可以通过 `compute-helper` CLI 在远程服务器上自主执行代码和命令。
 
-## 环境感知
+> compute-helper 路径和服务器信息在 system prompt 的 `<compute_node>` 块中给出。
+> 如果没有，在 `sidecar/bin/compute-helper.mjs` 查找。
 
-启动时请检查计算节点：
-1. 运行 `node <compute-helper-path> info` 查看节点配置
-2. 如果失败，查看 `~/.viewerleaf/compute-nodes.json`
-3. 确认节点连通后才开始实验
+## 命令速查
 
-> compute-helper 路径通常在 system prompt 的 `<compute_node>` 块中给出。
-> 如果没有，尝试在项目的 sidecar/bin/ 目录下查找。
+| 命令 | 用途 | 何时用 |
+|---|---|---|
+| `node <helper> ssh "<cmd>"` | 仅远程执行命令 | 检查环境、查看文件、不涉及代码改动时 |
+| `node <helper> sync up --cwd <root>` | 同步本地代码到服务器 | 手动同步（通常不需要，`run` 自动同步） |
+| `node <helper> run "<cmd>" --cwd <root>` | 同步代码 + 远程执行 | 修改代码后需要在服务器运行时 |
+| `node <helper> sync down --cwd <root> --files "logs/ results/"` | 从服务器拉回文件 | 需要查看结果文件时 |
+| `node <helper> info` | 查看节点配置 | 确认连接信息时 |
 
-## 工作流程
+## 核心行为规则
 
-### 第 1 步：代码同步
-```bash
-node <helper> sync up --cwd <project_root>
-```
-将本地代码同步到远程服务器。rsync 会自动排除 `.git/`, `node_modules/`, `__pycache__/`, `.venv/` 等。
+### 规则 1：主动执行，不等催促
 
-### 第 2 步：远程执行
-```bash
-node <helper> run "<command>" --cwd <project_root>
-```
-自动同步 + 远程执行。例如：
-```bash
-node <helper> run "python run_evaluation.py --n_episodes 50 --seed 42 --mode cbf" --cwd <project_root>
-```
-
-### 第 3 步：收集结果
-```bash
-node <helper> sync down --cwd <project_root> --files "results/ logs/ checkpoints/"
-```
-
-### 第 4 步：纯 SSH 执行（不同步）
-```bash
-node <helper> ssh "nvidia-smi"
-node <helper> ssh "cd /path && python train.py"
-```
-
-## 指标输出规范
-
-**关键要求：** 评估脚本必须在 stdout 输出一行 JSON 指标，例如：
-```
-{"ISR": 0.8523}
-```
-自动实验系统会解析这一行来判断是否达标。如果你修改了评估脚本，确保输出格式不变。
-
-## 自主优化决策
-
-每次迭代你应该：
-
-1. **分析历史** — 读取之前的实验结果 (`results/` 目录)，了解哪些参数组合已经尝试过
-2. **诊断瓶颈** — 根据指标走势判断是：
-   - 收敛太慢 → 调大学习率或 batch size
-   - 过拟合 → 增加正则化、early stopping
-   - 策略质量差 → 改奖励函数设计
-   - 安全约束冲突 → 调整 CBF 参数
-3. **提出改进** — 选择 ONE 个最可能有效的改动（不要同时改多个变量）
-4. **实施修改** — 修改代码文件
-5. **执行评估** — sync up + run，等待结果
-6. **汇报进展** — 清晰说明：
-   - 这次改了什么，为什么
-   - 指标变化 (例如 ISR: 0.72 → 0.78)
-   - 下一步方向
-
-## 优化策略库
-
-### 超参数优化
-- 学习率：先固定其他参数，网格搜索 {1e-4, 3e-4, 1e-3}
-- Batch size：根据 GPU 内存，尝试 {32, 64, 128}
-- 网络结构：层数、隐藏维度
-
-### 算法优化
-- MAPPO：GAE 参数 λ，clip ratio ε，entropy bonus
-- MADDPG：soft update τ，replay buffer 大小，exploration noise
-
-### 安全约束 (CBF)
-- CBF 权重平衡安全与性能
-- 安全裕度 (safety margin) 调整
-- 约束违反惩罚系数
-
-### 训练策略
-- 课程学习：从简单场景逐步到复杂场景
-- 自博弈 (self-play)：对手策略多样性
-- 多种子平均：至少 3 个随机种子验证鲁棒性
-
-## 进度汇报格式
-
-每次迭代结束后，用以下格式汇报：
+修改代码后 **必须立即** `run` 远程执行验证，不要修改完就停下来等用户确认。
 
 ```
-📊 实验迭代报告
-━━━━━━━━━━━━━━
-轮次: 3/10
-改动: 将 MAPPO clip ratio 从 0.2 调整为 0.1
-指标: ISR = 0.7823 (上轮: 0.7512, 最优: 0.7823)
-阈值: ISR ≥ 0.85
-状态: 继续优化
-下一步: 尝试增大 entropy bonus 以增加探索
+❌ 错误: "我已经修改了代码，你可以运行看看。"
+✅ 正确: 修改代码 → 立即 run → 分析输出 → 汇报结果
+```
+
+### 规则 2：失败后自主分析修复
+
+远程执行报错时，**立即分析错误输出 → 修改代码 → 再次 run**，形成自修复循环。除非遇到无法判断的问题才向用户求助。
+
+```
+❌ 错误: "执行出错了，错误信息如下：..."（等用户处理）
+✅ 正确: 分析错误 → 修改代码 → 再次 run → 如果还是失败 → 换策略再试
+```
+
+### 规则 3：先探测环境
+
+首次操作远程服务器时，先用 `ssh` 检查环境：
+- `which python` / `python3 --version` — Python 是否可用
+- `nvidia-smi` — GPU 状态（如果需要）
+- `pip list | grep <package>` — 依赖是否安装
+- `ls <workdir>` — 工作目录状态
+
+### 规则 4：区分 `run` vs `ssh`
+
+- **改了本地代码** → 用 `run`（自动 sync + 执行）
+- **只想在服务器上执行某个命令**（查看进程、安装包、看日志） → 用 `ssh`
+- **仅需同步代码不执行** → 用 `sync up`
+
+### 规则 5：单变量修改
+
+每次迭代只修改一个变量或一个方面，方便定位问题。同时改多处出错时无法判断哪个改动导致。
+
+## 迭代工作流
+
+当用户要求在服务器上运行/测试/实验：
+
+```
+1. ssh 检查环境 ──→ 缺依赖？安装
+                        │
+2. 修改本地代码 ◄──────┘
+        │
+3. run 远程执行 ──→ 成功？
+        │              ├─ 是 → 汇报结果，问下一步
+        │              └─ 否 → 分析错误 → 回到步骤 2
+        │
+4. (可选) sync down 拉回结果文件
+```
+
+## 进度汇报
+
+每次执行后简要说明：
+- 做了什么改动、为什么
+- 执行结果（成功/失败 + 关键输出）
+- 下一步计划
+
+```
+📊 执行结果
+━━━━━━━━━━
+改动: 将 batch_size 从 32 改为 64
+命令: python train.py --batch_size 64
+结果: ✅ 训练完成，loss 从 0.45 降到 0.32
+下一步: 尝试增大学习率到 3e-4
 ```

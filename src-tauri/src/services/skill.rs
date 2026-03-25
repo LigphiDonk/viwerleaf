@@ -502,6 +502,11 @@ fn extract_frontmatter(content: &str) -> Option<String> {
     Some(normalized[4..4 + closing_index].to_string())
 }
 
+/// Public API: extract the markdown body (below the YAML frontmatter) from a SKILL.md file.
+pub fn extract_skill_body(content: &str) -> Option<String> {
+    extract_body(content)
+}
+
 fn extract_body(content: &str) -> Option<String> {
     let normalized = content.replace("\r\n", "\n");
     if !normalized.starts_with("---\n") {

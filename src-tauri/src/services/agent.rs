@@ -215,6 +215,34 @@ pub fn run_agent(
         );
         system_prompt.push_str(&node_block);
 
+        // Force-inject remote-experiment skill body when compute node is active,
+        // regardless of the current research stage. This ensures the AI always
+        // receives the iteration workflow rules (edit→sync→run→analyze→iterate).
+        {
+            let skill_dir = state.sidecar_dir.parent().map(|p| {
+                p.join("skills").join("remote-experiment").join("SKILL.md")
+            });
+            // Also try the bundled skills directory under resources
+            let bundled_skill = state.sidecar_dir.parent().map(|p| {
+                p.join("resources")
+                    .join("skills")
+                    .join("remote-experiment")
+                    .join("SKILL.md")
+            });
+            let skill_content = skill_dir
+                .and_then(|p| std::fs::read_to_string(&p).ok())
+                .or_else(|| bundled_skill.and_then(|p| std::fs::read_to_string(&p).ok()));
+            if let Some(content) = skill_content {
+                if let Some(body) = skill::extract_skill_body(&content) {
+                    let trimmed = body.trim();
+                    if !trimmed.is_empty() {
+                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str(trimmed);
+                    }
+                }
+            }
+        }
+
         // Also write compute node info to CLAUDE.md so it persists across
         // session resumes (the Claude Code SDK always reads CLAUDE.md but
         // may ignore appendSystemPrompt when resuming an existing session).
@@ -235,7 +263,14 @@ pub fn run_agent(
              node {helper} sync down --cwd {project_root} --files \"results/ logs/\"\n\
              # 仅 SSH\n\
              node {helper} ssh \"<command>\"\n\
-             ```\n\
+             ```\n\n\
+             ### Remote Workflow\n\n\
+             修改代码后 **必须主动** sync + run 验证，不要等用户催:\n\
+             1. 首次操作先 `ssh` 检查环境 (python, gpu, 依赖)\n\
+             2. 本地修改代码\n\
+             3. `run` 远程执行 (自动同步)\n\
+             4. 分析输出 → 成功则汇报，失败则修改代码重试\n\
+             5. 每次只改一个变量，方便定位问题\n\
              <!-- VIEWERLEAF_COMPUTE_NODE_END -->",
             name = node.name,
             user = node.user,
