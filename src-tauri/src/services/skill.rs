@@ -231,11 +231,13 @@ pub fn load_skill_prompts(
         ));
     }
 
-    // ── Skill index (slim): ID + one-line summary per skill ──
-    // The agent reads full skill bodies from the project's .agents/skills/
-    // or .claude/skills/ directories via CLI-native discovery.
+    // ── Skill injection: full body for stage-matched, slim index for others ──
+    // Skills that match the current research stage get their full body injected
+    // so the AI has detailed instructions. Others remain as an index reference.
     if !skills.is_empty() {
         let mut index_lines = vec!["Available ViewerLeaf skills:".to_string()];
+        let mut full_body_sections: Vec<String> = Vec::new();
+
         for skill in &skills {
             let summary = if skill.summary.is_empty() {
                 &skill.description
@@ -248,11 +250,39 @@ pub fn load_skill_prompts(
                 .unwrap_or("")
                 .trim();
             index_lines.push(format!("- {} — {}", skill.id, one_liner));
+
+            // For stage-matched skills: read and inject full body
+            let is_stage_matched = !skill.stages.is_empty()
+                && current_stage
+                    .as_deref()
+                    .map(|stage| skill.stages.iter().any(|s| s.eq_ignore_ascii_case(stage)))
+                    .unwrap_or(false);
+
+            if is_stage_matched && !skill.dir_path.is_empty() {
+                let skill_md = Path::new(&skill.dir_path).join("SKILL.md");
+                if let Ok(content) = fs::read_to_string(&skill_md) {
+                    if let Some(body) = extract_body(&content) {
+                        let trimmed = body.trim();
+                        if !trimmed.is_empty() {
+                            full_body_sections.push(format!(
+                                "[[SKILL:{}]]\n{}\n[[/SKILL:{}]]",
+                                skill.id, trimmed, skill.id
+                            ));
+                        }
+                    }
+                }
+            }
         }
+
         sections.push(format!(
             "[[SKILL_INDEX]]\n{}\n[[/SKILL_INDEX]]",
             index_lines.join("\n")
         ));
+
+        // Append full bodies for stage-matched skills
+        for body_section in full_body_sections {
+            sections.push(body_section);
+        }
     }
 
     if sections.is_empty() {

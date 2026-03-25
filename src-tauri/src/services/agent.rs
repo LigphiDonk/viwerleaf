@@ -214,6 +214,59 @@ pub fn run_agent(
             project_root = project_root,
         );
         system_prompt.push_str(&node_block);
+
+        // Also write compute node info to CLAUDE.md so it persists across
+        // session resumes (the Claude Code SDK always reads CLAUDE.md but
+        // may ignore appendSystemPrompt when resuming an existing session).
+        let claude_md_path = Path::new(&project_root).join("CLAUDE.md");
+        let managed_section = format!(
+            "\n\n<!-- VIEWERLEAF_COMPUTE_NODE_START -->\n\
+             ## Compute Node\n\n\
+             远程计算节点已激活：\n\
+             - 名称: {name}\n\
+             - 地址: {user}@{host}:{port}\n\
+             - 工作目录: {work_dir}\n\n\
+             ```bash\n\
+             # 同步代码到服务器\n\
+             node {helper} sync up --cwd {project_root}\n\
+             # 同步 + 远程执行\n\
+             node {helper} run \"<command>\" --cwd {project_root}\n\
+             # 拉回结果\n\
+             node {helper} sync down --cwd {project_root} --files \"results/ logs/\"\n\
+             # 仅 SSH\n\
+             node {helper} ssh \"<command>\"\n\
+             ```\n\
+             <!-- VIEWERLEAF_COMPUTE_NODE_END -->",
+            name = node.name,
+            user = node.user,
+            host = node.host,
+            port = node.port,
+            work_dir = node.work_dir,
+            helper = helper_path,
+            project_root = project_root,
+        );
+        if claude_md_path.exists() {
+            if let Ok(existing) = std::fs::read_to_string(&claude_md_path) {
+                let updated = if existing.contains("<!-- VIEWERLEAF_COMPUTE_NODE_START -->") {
+                    // Replace existing managed section
+                    let start_marker = "<!-- VIEWERLEAF_COMPUTE_NODE_START -->";
+                    let end_marker = "<!-- VIEWERLEAF_COMPUTE_NODE_END -->";
+                    if let (Some(start), Some(end_pos)) = (
+                        existing.find(start_marker),
+                        existing.find(end_marker),
+                    ) {
+                        let before = &existing[..start.saturating_sub(2)]; // trim preceding \n\n
+                        let after = &existing[end_pos + end_marker.len()..];
+                        format!("{}{}{}", before, managed_section, after)
+                    } else {
+                        format!("{}{}", existing, managed_section)
+                    }
+                } else {
+                    format!("{}{}", existing, managed_section)
+                };
+                let _ = std::fs::write(&claude_md_path, updated);
+            }
+        }
     }
 
     let user_message = user_message
