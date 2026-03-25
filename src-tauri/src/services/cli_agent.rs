@@ -31,9 +31,6 @@ pub fn spawn_cli_agent(
         "codex" => {
             let mut c = Command::new("codex");
             c.args(["-p", user_message, "--full-auto"]);
-            if !project_root.is_empty() {
-                c.args(["--cwd", project_root]);
-            }
             c
         }
         _ => {
@@ -46,9 +43,6 @@ pub fn spawn_cli_agent(
                 "--output-format",
                 "stream-json",
             ]);
-            if !project_root.is_empty() {
-                c.args(["--cwd", project_root]);
-            }
             if let Some(rsid) = remote_session_id {
                 if !rsid.is_empty() {
                     c.args(["--resume", rsid]);
@@ -60,6 +54,10 @@ pub fn spawn_cli_agent(
             c
         }
     };
+
+    if !project_root.is_empty() {
+        cmd.current_dir(project_root);
+    }
 
     cmd.env("PATH", &enriched_path);
     cmd.stdin(Stdio::piped())
