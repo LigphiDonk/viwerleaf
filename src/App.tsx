@@ -4190,6 +4190,7 @@ function App() {
                   ) : (
                     <Sidebar
                       locale={locale}
+                      workspaceRoot={snapshot.projectConfig.rootPath}
                       tab={drawerTab}
                       messages={messages}
                       sessions={agentSessions}

@@ -4,6 +4,7 @@ import type { PendingInteractiveQuestion, PendingPermissionRequest } from "../ho
 
 import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
+import { SidebarTerminal } from "./SidebarTerminal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
@@ -27,8 +28,11 @@ import type {
   WorkspaceCollabMetadata,
 } from "../types";
 
+type AiPanelMode = "chat" | "terminal";
+
 interface SidebarProps {
   locale: AppLocale;
+  workspaceRoot: string;
   tab: DrawerTab;
   messages: AgentMessage[];
   sessions: AgentSessionSummary[];
@@ -169,6 +173,7 @@ const LATEX_ENGINE_LABELS: Record<LatexEngine, string> = {
 
 export function Sidebar({
   locale,
+  workspaceRoot,
   tab,
   messages,
   sessions,
@@ -258,6 +263,7 @@ export function Sidebar({
   onJumpToCommentLine,
 }: SidebarProps) {
   const isZh = locale === "zh-CN";
+  const [aiPanelMode, setAiPanelMode] = useState<AiPanelMode>("chat");
   const [collabConfigForm, setCollabConfigForm] = useState({
     httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
     wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
@@ -438,53 +444,74 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "ai" && (
         <div className="sidebar-content sidebar-content--chat">
-          <ChatPanel
-            messages={messages}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={onSelectSession}
-            onNewSession={onNewSession}
-            onRunAgent={onRunAgent}
-            onSendMessage={onSendMessage}
-            onCancelAgent={onCancelAgent}
-            pendingPatchSummary={pendingPatchSummary}
-            pendingPatchDiff={pendingPatchDiff}
-            onApplyPatch={onApplyPatch}
-            onDismissPatch={onDismissPatch}
-            streamThinkingText={streamThinkingText}
-            streamThinkingHistoryText={streamThinkingHistoryText}
-            streamThinkingDurationMs={streamThinkingDurationMs}
-            streamContent={streamContent}
-            streamError={streamError}
-            streamSubagentLabel={streamSubagentLabel}
-            streamStatusMessage={streamStatusMessage}
-            promptSuggestions={promptSuggestions}
-            activeModelInfo={activeModelInfo}
-            pendingElicitation={pendingElicitation}
-            isStreaming={isStreaming}
-            providers={providers}
-            activeProfile={activeChatProfile}
-            activeProviderId={activeProviderId}
-            onSelectProviderVendor={onSelectChatVendor}
-            onSelectModel={onSelectChatModel}
-            skills={skills}
-            onToggleSkill={onToggleSkill}
-            usageRecords={usageRecords}
-            projectTree={projectTree}
-            activeResearchTask={activeResearchTask}
-            composerPreset={composerPreset}
-            onExitResearchTaskMode={onExitResearchTaskMode}
-            onOpenResearchCanvas={onOpenResearchCanvas}
-            onApplyTaskUpdateSuggestion={onApplyTaskUpdateSuggestion}
-            onRespondElicitation={onRespondElicitation}
-            onSelectSuggestion={onSelectSuggestion}
-            pendingInteractiveQuestion={pendingInteractiveQuestion}
-            onRespondInteractiveQuestion={onRespondInteractiveQuestion}
-            pendingPermissionRequest={pendingPermissionRequest}
-            onRespondPermission={onRespondPermission}
-            autoApproveSession={autoApproveSession}
-            onSetAutoApprove={onSetAutoApprove}
-          />
+          <div className="sidebar-ai-mode-switcher">
+            <button
+              type="button"
+              className={`sidebar-ai-mode-btn ${aiPanelMode === "chat" ? "is-active" : ""}`}
+              onClick={() => setAiPanelMode("chat")}
+            >
+              {isZh ? "对话" : "Chat"}
+            </button>
+            <button
+              type="button"
+              className={`sidebar-ai-mode-btn ${aiPanelMode === "terminal" ? "is-active" : ""}`}
+              onClick={() => setAiPanelMode("terminal")}
+            >
+              {isZh ? "终端" : "Terminal"}
+            </button>
+          </div>
+
+          {aiPanelMode === "chat" ? (
+            <ChatPanel
+              messages={messages}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={onSelectSession}
+              onNewSession={onNewSession}
+              onRunAgent={onRunAgent}
+              onSendMessage={onSendMessage}
+              onCancelAgent={onCancelAgent}
+              pendingPatchSummary={pendingPatchSummary}
+              pendingPatchDiff={pendingPatchDiff}
+              onApplyPatch={onApplyPatch}
+              onDismissPatch={onDismissPatch}
+              streamThinkingText={streamThinkingText}
+              streamThinkingHistoryText={streamThinkingHistoryText}
+              streamThinkingDurationMs={streamThinkingDurationMs}
+              streamContent={streamContent}
+              streamError={streamError}
+              streamSubagentLabel={streamSubagentLabel}
+              streamStatusMessage={streamStatusMessage}
+              promptSuggestions={promptSuggestions}
+              activeModelInfo={activeModelInfo}
+              pendingElicitation={pendingElicitation}
+              isStreaming={isStreaming}
+              providers={providers}
+              activeProfile={activeChatProfile}
+              activeProviderId={activeProviderId}
+              onSelectProviderVendor={onSelectChatVendor}
+              onSelectModel={onSelectChatModel}
+              skills={skills}
+              onToggleSkill={onToggleSkill}
+              usageRecords={usageRecords}
+              projectTree={projectTree}
+              activeResearchTask={activeResearchTask}
+              composerPreset={composerPreset}
+              onExitResearchTaskMode={onExitResearchTaskMode}
+              onOpenResearchCanvas={onOpenResearchCanvas}
+              onApplyTaskUpdateSuggestion={onApplyTaskUpdateSuggestion}
+              onRespondElicitation={onRespondElicitation}
+              onSelectSuggestion={onSelectSuggestion}
+              pendingInteractiveQuestion={pendingInteractiveQuestion}
+              onRespondInteractiveQuestion={onRespondInteractiveQuestion}
+              pendingPermissionRequest={pendingPermissionRequest}
+              onRespondPermission={onRespondPermission}
+              autoApproveSession={autoApproveSession}
+              onSetAutoApprove={onSetAutoApprove}
+            />
+          ) : (
+            <SidebarTerminal workspaceRoot={workspaceRoot} />
+          )}
         </div>
       )}
 
