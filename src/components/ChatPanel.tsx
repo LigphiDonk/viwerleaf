@@ -1813,7 +1813,7 @@ export function ChatPanel({
   onRespondInteractiveQuestion,
   pendingPermissionRequest,
   onRespondPermission,
-  autoApproveSession,
+  autoApproveSession: _autoApproveSession,
   onSetAutoApprove,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
