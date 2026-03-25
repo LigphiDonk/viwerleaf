@@ -482,12 +482,29 @@ pub fn resume_auto_experiment() {
 
 /// Parse a metric value from agent output text.
 /// Scans each line for a JSON object containing the given metric key.
+/// Falls back to substring extraction if the metric JSON is embedded in non-JSON text.
 fn parse_metric_from_output(output: &str, metric_key: &str) -> Option<f64> {
+    let needle = format!("\"{}\"", metric_key);
     for line in output.lines().rev() {
         let trimmed = line.trim();
+        // Strategy 1: entire line is a JSON object containing the metric key
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
             if let Some(v) = json.get(metric_key).and_then(|val| val.as_f64()) {
                 return Some(v);
+            }
+        }
+        // Strategy 2: metric JSON is embedded in a larger string
+        if let Some(pos) = trimmed.find(&needle) {
+            if let Some(start) = trimmed[..pos].rfind('{') {
+                let candidate = &trimmed[start..];
+                if let Some(end) = candidate.find('}') {
+                    let snippet = &candidate[..=end];
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(snippet) {
+                        if let Some(v) = json.get(metric_key).and_then(|val| val.as_f64()) {
+                            return Some(v);
+                        }
+                    }
+                }
             }
         }
     }

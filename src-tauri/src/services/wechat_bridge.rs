@@ -304,20 +304,32 @@ pub fn poll_scan_status(api_url: &str, ticket: &str) -> Result<Option<String>, S
 
     match status {
         "confirmed" => {
-            // Extract bot_token from confirmed response
-            let token = response_body
-                .get("bot_token")
-                .or_else(|| response_body.get("token"))
-                .or_else(|| response_body.get("access_token"))
-                .and_then(|v: &serde_json::Value| v.as_str())
-                .map(|s: &str| s.to_string());
+            // Try each possible token field and log which one we found
+            let (token, source) = if let Some(t) = response_body.get("bot_token").and_then(|v| v.as_str()) {
+                (Some(t.to_string()), "bot_token")
+            } else if let Some(t) = response_body.get("token").and_then(|v| v.as_str()) {
+                (Some(t.to_string()), "token")
+            } else if let Some(t) = response_body.get("access_token").and_then(|v| v.as_str()) {
+                (Some(t.to_string()), "access_token")
+            } else {
+                (None, "none")
+            };
+
+            eprintln!("[WeChat iLink] ✅ Confirmed! Token source field: '{}'", source);
+            if let Some(ref t) = token {
+                let preview = if t.len() > 40 { format!("{}…", &t[..40]) } else { t.clone() };
+                eprintln!("[WeChat iLink]   token value: {}", preview);
+            }
 
             // Log additional useful info
             if let Some(bot_id) = response_body.get("ilink_bot_id").and_then(|v| v.as_str()) {
-                eprintln!("[WeChat iLink] ilink_bot_id: {}", bot_id);
+                eprintln!("[WeChat iLink]   ilink_bot_id: {}", bot_id);
             }
             if let Some(base) = response_body.get("baseurl").and_then(|v| v.as_str()) {
-                eprintln!("[WeChat iLink] returned baseurl: {}", base);
+                eprintln!("[WeChat iLink]   baseurl: {}", base);
+            }
+            if let Some(uid) = response_body.get("ilink_user_id").and_then(|v| v.as_str()) {
+                eprintln!("[WeChat iLink]   ilink_user_id: {}", uid);
             }
 
             Ok(token)
@@ -364,6 +376,16 @@ pub fn get_updates(
     let response_body: serde_json::Value = response
         .into_json()
         .map_err(|e| format!("Failed to parse getUpdates response: {e}"))?;
+
+    // Log full response for first few calls and whenever messages arrive
+    let msg_count = response_body.get("msgs").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    if msg_count > 0 || cursor.is_empty() {
+        eprintln!(
+            "[WeChat iLink] getUpdates response (msgs={}):\n{}",
+            msg_count,
+            serde_json::to_string_pretty(&response_body).unwrap_or_default()
+        );
+    }
 
     let ret = response_body
         .get("ret")

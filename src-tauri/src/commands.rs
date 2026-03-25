@@ -1425,11 +1425,22 @@ pub fn start_wechat_listener(
         // Use a persistent wechat session ID so conversation context is maintained
         let wechat_session_id = format!("wechat-{}", uuid::Uuid::new_v4());
 
+        let token_preview = if config.token.len() > 30 {
+            format!("{}…", &config.token[..30])
+        } else {
+            config.token.clone()
+        };
+        eprintln!("[WeChat Listener] Starting with token: {}", token_preview);
+        eprintln!("[WeChat Listener] API URL: {}", config.api_url);
+        eprintln!("[WeChat Listener] Allow from: '{}'", config.allow_from);
+
         while running.load(Ordering::SeqCst) {
             let cursor = {
                 let guard = cursor_ref.lock().unwrap_or_else(|e| e.into_inner());
                 guard.clone()
             };
+
+            eprintln!("[WeChat Listener] Polling getUpdates (cursor len={})...", cursor.len());
 
             match wechat_bridge::get_updates(
                 &config.api_url,
@@ -1438,6 +1449,7 @@ pub fn start_wechat_listener(
                 config.poll_timeout_ms,
             ) {
                 Ok((messages, new_cursor)) => {
+                    eprintln!("[WeChat Listener] Got {} messages, cursor changed={}", messages.len(), new_cursor != cursor);
                     {
                         let mut guard = cursor_ref.lock().unwrap_or_else(|e| e.into_inner());
                         *guard = new_cursor;

@@ -385,6 +385,11 @@ pub fn run_agent(
                     output,
                     status,
                 } => {
+                    // Append tool output to full_response so experiment metric
+                    // parsing can find JSON metrics in command outputs
+                    full_response.push('\n');
+                    full_response.push_str(output);
+                    full_response.push('\n');
                     let resolved_status = status.as_deref().unwrap_or("completed").to_string();
                     let preview = truncate_preview(output, 240);
                     // Find matching index — prefer tool_use_id, fallback to name+status
