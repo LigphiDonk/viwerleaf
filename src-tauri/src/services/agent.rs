@@ -177,33 +177,41 @@ pub fn run_agent(
     .map_err(anyhow::Error::msg)?;
     drop(conn);
 
-    // Inject active compute node info so the AI can SSH into the server
+    // Inject active compute node info + compute-helper CLI instructions
     if let Some(node) = compute_node::get_active_node() {
-        let auth_info = if node.auth_method == "key" && !node.key_path.is_empty() {
-            format!("SSH 密钥 ({})", node.key_path)
-        } else {
-            "密码认证".to_string()
-        };
-        let ssh_cmd = if node.auth_method == "key" && !node.key_path.is_empty() {
-            format!(
-                "ssh -i {} -p {} {}@{}",
-                node.key_path, node.port, node.user, node.host
-            )
-        } else {
-            format!("ssh -p {} {}@{}", node.port, node.user, node.host)
+        // Resolve path to compute-helper.mjs relative to the sidecar location
+        let helper_path = {
+            let sidecar_dir = state.sidecar_dir.to_string_lossy().to_string();
+            if sidecar_dir.is_empty() {
+                "compute-helper.mjs".to_string()
+            } else {
+                format!("{}/bin/compute-helper.mjs", sidecar_dir)
+            }
         };
         let node_block = format!(
             "\n\n<compute_node>\n\
-             你有一台可用的远程计算节点，可以通过 SSH 执行远程命令：\n\
-             - 名称: {}\n\
-             - 地址: {}@{}:{}\n\
-             - 认证方式: {}\n\
-             - 工作目录: {}\n\
-             连接命令: {}\n\
-             当用户要求你在远程服务器上执行操作（如跑实验、训练模型、查看 GPU 状态等），\n\
-             请使用上述 SSH 命令连接服务器并执行。\n\
+             你有一台可用的远程计算节点：\n\
+             - 名称: {name}\n\
+             - 地址: {user}@{host}:{port}\n\
+             - 工作目录: {work_dir}\n\
+             \n\
+             可用的计算工具命令：\n\
+             - `node {helper} sync up --cwd {project_root}` — 同步本地代码到服务器\n\
+             - `node {helper} run \"<command>\" --cwd {project_root}` — 同步代码 + 远程执行命令\n\
+             - `node {helper} sync down --cwd {project_root} --files \"logs/ results/\"` — 从服务器拉回结果文件\n\
+             - `node {helper} ssh \"<command>\"` — 仅 SSH 执行命令（不同步代码）\n\
+             - `node {helper} info` — 查看节点配置信息\n\
+             \n\
+             使用流程：修改代码 → sync up 同步 → run/ssh 远程执行 → sync down 拉回结果\n\
+             所有命令输出为 JSON 格式: {{\"success\": true, \"output\": \"...\"}}\n\
              </compute_node>",
-            node.name, node.user, node.host, node.port, auth_info, node.work_dir, ssh_cmd,
+            name = node.name,
+            user = node.user,
+            host = node.host,
+            port = node.port,
+            work_dir = node.work_dir,
+            helper = helper_path,
+            project_root = project_root,
         );
         system_prompt.push_str(&node_block);
     }
@@ -465,6 +473,7 @@ pub fn run_agent(
                 session_id: Some(session_id),
                 message: None,
                 suggested_patch: None,
+                full_output: Some(full_response.clone()),
             });
         }
 
@@ -555,6 +564,7 @@ pub fn run_agent(
         session_id: Some(session_id),
         message: None,
         suggested_patch: None,
+        full_output: Some(full_response),
     })
 }
 

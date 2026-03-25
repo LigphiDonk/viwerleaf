@@ -173,6 +173,9 @@ pub struct AgentRunResult {
     pub session_id: Option<String>,
     pub message: Option<AgentMessage>,
     pub suggested_patch: Option<AgentSuggestedPatch>,
+    /// Full text output from the agent (text + tool outputs), used by experiment loop.
+    #[serde(default)]
+    pub full_output: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

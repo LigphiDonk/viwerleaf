@@ -357,6 +357,7 @@ pub fn run_agent(
         session_id: Some(resolved_session_id),
         message: None,
         suggested_patch: None,
+        full_output: None,
     })
 }
 
@@ -1416,27 +1417,27 @@ pub fn start_wechat_listener(
     let running = bridge_state.running.clone();
     let status_ref = bridge_state.status.clone();
     let ctx_token_ref = bridge_state.context_token.clone();
-    let offset_ref = bridge_state.update_offset.clone();
+    let cursor_ref = bridge_state.update_cursor.clone();
     let app = app_handle.clone();
 
     // Spawn the long-poll listener on a background thread.
     tauri::async_runtime::spawn_blocking(move || {
         while running.load(Ordering::SeqCst) {
-            let offset = {
-                let guard = offset_ref.lock().unwrap_or_else(|e| e.into_inner());
-                *guard
+            let cursor = {
+                let guard = cursor_ref.lock().unwrap_or_else(|e| e.into_inner());
+                guard.clone()
             };
 
             match wechat_bridge::get_updates(
                 &config.api_url,
                 &config.token,
-                offset,
+                &cursor,
                 config.poll_timeout_ms,
             ) {
-                Ok((messages, new_offset)) => {
+                Ok((messages, new_cursor)) => {
                     {
-                        let mut guard = offset_ref.lock().unwrap_or_else(|e| e.into_inner());
-                        *guard = new_offset;
+                        let mut guard = cursor_ref.lock().unwrap_or_else(|e| e.into_inner());
+                        *guard = new_cursor;
                     }
 
                     for msg in messages {

@@ -3,10 +3,11 @@
 //! Implements the ilink HTTP gateway protocol for personal WeChat integration.
 //! Allows users to remotely control the local AI agent via WeChat messages.
 //!
-//! Protocol summary:
+//! Protocol based on the official iLink Bot API (same as cc-connect / wechatbot SDK):
 //!   - `get_bot_qrcode` → GET request to obtain QR code for WeChat scan login
-//!   - `getUpdates` → long-poll for incoming messages
-//!   - `sendMessage` → push agent replies back to WeChat
+//!   - `get_qrcode_status` → GET request to poll scan status
+//!   - `getupdates` → POST long-poll for incoming messages (with `get_updates_buf` cursor)
+//!   - `sendmessage` → POST push agent replies back to WeChat (structured `msg` body)
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -21,7 +22,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeChatConfig {
-    /// Bearer token obtained after QR scan login.
+    /// Bearer token obtained after QR scan login (`bot_token` from iLink).
     pub token: String,
     /// ilink gateway base URL.
     #[serde(default = "default_api_url")]
@@ -98,10 +99,10 @@ pub struct WeChatBridgeState {
     pub running: Arc<AtomicBool>,
     /// Current status.
     pub status: Arc<Mutex<WeChatStatus>>,
-    /// Cached context_token for message replies.
+    /// Cached context_token for message replies (per-user cache).
     pub context_token: Arc<Mutex<Option<String>>>,
-    /// The getUpdates cursor (offset).
-    pub update_offset: Arc<Mutex<i64>>,
+    /// The getUpdates cursor (opaque `get_updates_buf` string from iLink).
+    pub update_cursor: Arc<Mutex<String>>,
 }
 
 impl Default for WeChatBridgeState {
@@ -114,7 +115,7 @@ impl Default for WeChatBridgeState {
                 bound_user: None,
             })),
             context_token: Arc::new(Mutex::new(None)),
-            update_offset: Arc::new(Mutex::new(0)),
+            update_cursor: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -157,9 +158,54 @@ fn make_agent(timeout: Duration) -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(timeout).build()
 }
 
+// ── iLink protocol helpers ──────────────────────────────────
+
+/// Generate a random X-WECHAT-UIN header value.
+/// Per protocol: random uint32 → decimal string → base64.
+/// We do a simplified manual base64 since we don't want to add a crate dependency.
+fn random_wechat_uin() -> String {
+    use std::time::SystemTime;
+    let seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u32;
+    let decimal = seed.to_string();
+    // Simple base64 encoding for short ASCII strings
+    simple_base64(decimal.as_bytes())
+}
+
+/// Minimal base64 encoder (standard alphabet, with padding).
+fn simple_base64(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(TABLE[((triple >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[((triple >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[(triple & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// Channel version identifier for base_info.
+const CHANNEL_VERSION: &str = "viewerleaf/1.0";
+
 // ── ilink API helpers ───────────────────────────────────────
 
 /// Request a QR code from the ilink gateway for WeChat scan login.
+/// GET /ilink/bot/get_bot_qrcode?bot_type=3
 pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
     let url = format!(
         "{}/ilink/bot/get_bot_qrcode?bot_type=3",
@@ -176,7 +222,12 @@ pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
         .into_json()
         .map_err(|e| format!("Failed to parse QR response: {e}"))?;
 
-    // Extract QR code URL and ticket from the ilink response.
+    eprintln!(
+        "[WeChat iLink] get_bot_qrcode raw response: {}",
+        serde_json::to_string_pretty(&response_body).unwrap_or_default()
+    );
+
+    // iLink returns: { "qrcode": "<ticket>", "qrcode_img_content": "<url_or_base64>" }
     let qr_url_raw = response_body
         .get("qrcode_img_content")
         .or_else(|| response_body.get("qrcode_url"))
@@ -196,6 +247,7 @@ pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
         qr_url_raw
     };
 
+    // "qrcode" field is the ticket used for polling status
     let scan_ticket = response_body
         .get("qrcode")
         .or_else(|| response_body.get("ticket"))
@@ -217,60 +269,84 @@ pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
 }
 
 /// Poll ilink to check if the QR scan was completed.
-/// Returns the bearer token on success.
+/// GET /ilink/bot/get_qrcode_status?qrcode=<ticket>
+///
+/// Returns (bot_token, optional_new_baseurl) on success.
+/// Returns None if still waiting.
 pub fn poll_scan_status(api_url: &str, ticket: &str) -> Result<Option<String>, String> {
     let url = format!(
-        "{}/ilink/bot/get_qrcode_status",
-        api_url.trim_end_matches('/')
+        "{}/ilink/bot/get_qrcode_status?qrcode={}",
+        api_url.trim_end_matches('/'),
+        ticket
     );
     let agent = make_agent(Duration::from_secs(10));
 
-    let body = serde_json::json!({
-        "qrcode": ticket
-    });
-
     let response = agent
-        .post(&url)
-        .send_json(&body)
+        .get(&url)
+        .set("iLink-App-ClientVersion", "1")
+        .call()
         .map_err(|e| format!("Scan status poll failed: {e}"))?;
 
     let response_body: serde_json::Value = response
         .into_json()
         .map_err(|e| format!("Failed to parse scan status: {e}"))?;
 
-    // Check if login was confirmed
-    let errcode = response_body
-        .get("errcode")
-        .and_then(|v: &serde_json::Value| v.as_i64())
-        .unwrap_or(-1);
+    eprintln!(
+        "[WeChat iLink] get_qrcode_status raw response: {}",
+        serde_json::to_string_pretty(&response_body).unwrap_or_default()
+    );
 
-    if errcode == 0 {
-        // Success — extract token
-        let token = response_body
-            .get("token")
-            .or_else(|| response_body.get("access_token"))
-            .and_then(|v: &serde_json::Value| v.as_str())
-            .map(|s: &str| s.to_string());
+    // iLink status machine: "wait" → "scaned" → "confirmed" (or "expired")
+    let status = response_body
+        .get("status")
+        .and_then(|v: &serde_json::Value| v.as_str())
+        .unwrap_or("wait");
 
-        return Ok(token);
+    match status {
+        "confirmed" => {
+            // Extract bot_token from confirmed response
+            let token = response_body
+                .get("bot_token")
+                .or_else(|| response_body.get("token"))
+                .or_else(|| response_body.get("access_token"))
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .map(|s: &str| s.to_string());
+
+            // Log additional useful info
+            if let Some(bot_id) = response_body.get("ilink_bot_id").and_then(|v| v.as_str()) {
+                eprintln!("[WeChat iLink] ilink_bot_id: {}", bot_id);
+            }
+            if let Some(base) = response_body.get("baseurl").and_then(|v| v.as_str()) {
+                eprintln!("[WeChat iLink] returned baseurl: {}", base);
+            }
+
+            Ok(token)
+        }
+        "expired" => {
+            Err("QR code expired, please retry".into())
+        }
+        // "wait" or "scaned" — still in progress
+        _ => Ok(None),
     }
-
-    // Still waiting or error
-    Ok(None)
 }
 
 /// Long-poll for new messages via getUpdates.
+///
+/// POST /ilink/bot/getupdates
+/// Body: { "get_updates_buf": "<cursor>", "base_info": { "channel_version": "..." } }
+///
+/// Returns (messages, new_cursor).
 pub fn get_updates(
     api_url: &str,
     token: &str,
-    offset: i64,
+    cursor: &str,
     timeout_ms: u64,
-) -> Result<(Vec<WeChatIncomingMessage>, i64), String> {
+) -> Result<(Vec<WeChatIncomingMessage>, String), String> {
     let url = format!("{}/ilink/bot/getupdates", api_url.trim_end_matches('/'));
 
     let body = serde_json::json!({
-        "offset": offset,
-        "timeout": timeout_ms / 1000,
+        "get_updates_buf": cursor,
+        "base_info": { "channel_version": CHANNEL_VERSION }
     });
 
     let total_timeout = Duration::from_millis(timeout_ms + 10_000);
@@ -278,7 +354,10 @@ pub fn get_updates(
 
     let response = agent
         .post(&url)
+        .set("Content-Type", "application/json")
+        .set("AuthorizationType", "ilink_bot_token")
         .set("Authorization", &format!("Bearer {}", token))
+        .set("X-WECHAT-UIN", &random_wechat_uin())
         .send_json(&body)
         .map_err(|e| format!("getUpdates failed: {e}"))?;
 
@@ -286,89 +365,157 @@ pub fn get_updates(
         .into_json()
         .map_err(|e| format!("Failed to parse getUpdates response: {e}"))?;
 
+    let ret = response_body
+        .get("ret")
+        .and_then(|v: &serde_json::Value| v.as_i64())
+        .unwrap_or(0);
+
     let errcode = response_body
         .get("errcode")
         .and_then(|v: &serde_json::Value| v.as_i64())
         .unwrap_or(0);
 
-    if errcode != 0 {
-        return Err(format!(
-            "getUpdates returned errcode {}: {}",
-            errcode,
-            response_body
-                .get("errmsg")
-                .and_then(|v: &serde_json::Value| v.as_str())
-                .unwrap_or("unknown error")
-        ));
+    // errcode -14 means session expired
+    if errcode == -14 {
+        return Err("Session expired (errcode -14). Please re-scan QR code.".into());
     }
 
-    let mut messages = Vec::new();
-    let mut new_offset = offset;
+    if ret != 0 {
+        let errmsg = response_body
+            .get("errmsg")
+            .and_then(|v: &serde_json::Value| v.as_str())
+            .unwrap_or("unknown error");
+        // Log but don't fail for non-zero ret (it may be transient)
+        eprintln!(
+            "[WeChat iLink] getUpdates ret={}, errcode={}, errmsg={}",
+            ret, errcode, errmsg
+        );
+    }
 
-    if let Some(updates) = response_body
-        .get("updates")
+    // Extract the new cursor
+    let new_cursor = response_body
+        .get("get_updates_buf")
+        .and_then(|v: &serde_json::Value| v.as_str())
+        .unwrap_or(cursor)
+        .to_string();
+
+    // Parse messages from "msgs" array (iLink format)
+    let mut messages = Vec::new();
+    if let Some(msgs) = response_body
+        .get("msgs")
         .and_then(|v: &serde_json::Value| v.as_array())
     {
-        for update in updates {
-            let update_id = update
-                .get("update_id")
+        for msg in msgs {
+            // Skip bot messages (message_type == 2)
+            let message_type = msg
+                .get("message_type")
                 .and_then(|v: &serde_json::Value| v.as_i64())
                 .unwrap_or(0);
-            if update_id >= new_offset {
-                new_offset = update_id + 1;
+            if message_type == 2 {
+                continue; // Skip our own bot replies
             }
 
-            let msg = update.get("message").or_else(|| update.get("msg"));
-            if let Some(msg) = msg {
-                let from_user = msg
-                    .get("from")
-                    .and_then(|f: &serde_json::Value| f.get("id").or_else(|| f.get("user_id")))
-                    .and_then(|v: &serde_json::Value| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+            let from_user = msg
+                .get("from_user_id")
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .unwrap_or_default()
+                .to_string();
 
-                let content = msg
+            // Extract text content from item_list
+            let mut content = String::new();
+            if let Some(items) = msg
+                .get("item_list")
+                .and_then(|v: &serde_json::Value| v.as_array())
+            {
+                for item in items {
+                    let item_type = item
+                        .get("type")
+                        .and_then(|v: &serde_json::Value| v.as_i64())
+                        .unwrap_or(0);
+
+                    match item_type {
+                        1 => {
+                            // Text item
+                            if let Some(text) = item
+                                .get("text_item")
+                                .and_then(|ti| ti.get("text"))
+                                .and_then(|v: &serde_json::Value| v.as_str())
+                            {
+                                if !content.is_empty() {
+                                    content.push('\n');
+                                }
+                                content.push_str(text);
+                            }
+                        }
+                        3 => {
+                            // Voice item — try to get transcribed text
+                            if let Some(text) = item
+                                .get("voice_item")
+                                .and_then(|vi| vi.get("text"))
+                                .and_then(|v: &serde_json::Value| v.as_str())
+                            {
+                                if !text.is_empty() {
+                                    if !content.is_empty() {
+                                        content.push('\n');
+                                    }
+                                    content.push_str(text);
+                                }
+                            }
+                        }
+                        _ => {
+                            // Image (2), File (4), Video (5) — skip for now
+                        }
+                    }
+                }
+            }
+
+            // Also check for ref_msg (quoted messages)
+            // Fallback: try "text" or "content" fields for simpler formats
+            if content.is_empty() {
+                if let Some(text) = msg
                     .get("text")
                     .or_else(|| msg.get("content"))
                     .and_then(|v: &serde_json::Value| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-
-                let msg_type = msg
-                    .get("type")
-                    .or_else(|| msg.get("msg_type"))
-                    .and_then(|v: &serde_json::Value| v.as_str())
-                    .unwrap_or("text")
-                    .to_string();
-
-                let timestamp = msg
-                    .get("timestamp")
-                    .or_else(|| msg.get("create_time"))
-                    .and_then(|v: &serde_json::Value| v.as_u64())
-                    .unwrap_or(0);
-
-                let context_token = msg
-                    .get("context_token")
-                    .and_then(|v: &serde_json::Value| v.as_str())
-                    .map(|s: &str| s.to_string());
-
-                if !content.is_empty() {
-                    messages.push(WeChatIncomingMessage {
-                        from_user,
-                        content,
-                        msg_type,
-                        timestamp,
-                        context_token,
-                    });
+                {
+                    content = text.to_string();
                 }
+            }
+
+            let msg_type = match message_type {
+                1 => "text",
+                _ => "unknown",
+            }
+            .to_string();
+
+            let timestamp = msg
+                .get("create_time_ms")
+                .and_then(|v: &serde_json::Value| v.as_u64())
+                .unwrap_or(0);
+
+            let context_token = msg
+                .get("context_token")
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .map(|s: &str| s.to_string());
+
+            if !content.is_empty() || context_token.is_some() {
+                messages.push(WeChatIncomingMessage {
+                    from_user,
+                    content,
+                    msg_type,
+                    timestamp,
+                    context_token,
+                });
             }
         }
     }
 
-    Ok((messages, new_offset))
+    Ok((messages, new_cursor))
 }
 
 /// Send a text message back to WeChat via sendMessage.
+///
+/// POST /ilink/bot/sendmessage
+/// Body: { "msg": { ... structured message ... }, "base_info": { ... } }
 pub fn send_message(
     api_url: &str,
     token: &str,
@@ -377,28 +524,64 @@ pub fn send_message(
 ) -> Result<(), String> {
     let url = format!("{}/ilink/bot/sendmessage", api_url.trim_end_matches('/'));
 
-    let mut body = serde_json::json!({
-        "text": text,
-    });
+    // Generate a random client_id for deduplication
+    let client_id = format!("vl-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
 
-    if let Some(ctx) = context_token {
-        body["context_token"] = serde_json::Value::String(ctx.to_string());
+    let ctx = context_token.unwrap_or_default();
+    if ctx.is_empty() {
+        return Err("Cannot send message: no context_token available. User must message the bot first.".into());
     }
+
+    let body = serde_json::json!({
+        "msg": {
+            "from_user_id": "",
+            "to_user_id": "",
+            "client_id": client_id,
+            "message_type": 2,       // 2 = bot message
+            "message_state": 2,      // 2 = finished
+            "item_list": [
+                {
+                    "type": 1,       // 1 = text
+                    "text_item": {
+                        "text": text
+                    }
+                }
+            ],
+            "context_token": ctx
+        },
+        "base_info": {
+            "channel_version": CHANNEL_VERSION
+        }
+    });
 
     let agent = make_agent(Duration::from_secs(30));
     let response = agent
         .post(&url)
+        .set("Content-Type", "application/json")
+        .set("AuthorizationType", "ilink_bot_token")
         .set("Authorization", &format!("Bearer {}", token))
+        .set("X-WECHAT-UIN", &random_wechat_uin())
         .send_json(&body)
         .map_err(|e| format!("sendMessage failed: {e}"))?;
 
     let status = response.status();
-    if status != 200 {
-        let response_body: serde_json::Value =
-            response.into_json().unwrap_or(serde_json::Value::Null);
+    let response_body: serde_json::Value = response
+        .into_json()
+        .unwrap_or(serde_json::Value::Null);
+
+    let ret = response_body
+        .get("ret")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    if status != 200 || ret != 0 {
+        let errmsg = response_body
+            .get("errmsg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
         return Err(format!(
-            "sendMessage returned status {}: {}",
-            status, response_body
+            "sendMessage failed: http={}, ret={}, errmsg={}",
+            status, ret, errmsg
         ));
     }
 
