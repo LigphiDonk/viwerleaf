@@ -711,7 +711,7 @@ function App() {
   });
   const [literatureTaskFilterId, setLiteratureTaskFilterId] = useState<string | null>(null);
   const [artifactPreviewPath, setArtifactPreviewPath] = useState<string | null>(null);
-  const [taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
+  const [_taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
   const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
   const [lastAutoWritingHandoffKey, setLastAutoWritingHandoffKey] = useState("");
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
@@ -1224,38 +1224,38 @@ function App() {
     refreshWorkspace: async () => { await refreshWorkspaceRef.current?.(); },
   });
   const {
-    messages,
-    agentSessions,
+    messages: _messages,
+    agentSessions: _agentSessions,
     activeSessionId,
     usageRecords,
     activeProfileId,
     activeProfile,
     isStreaming,
-    streamThinkingText,
-    streamThinkingHistoryText,
-    streamThinkingDurationMs,
-    streamContent,
-    streamError,
-    streamSubagentLabel,
-    streamStatusMessage,
-    promptSuggestions,
-    activeModelInfo,
-    pendingElicitation,
+    streamThinkingText: _streamThinkingText,
+    streamThinkingHistoryText: _streamThinkingHistoryText,
+    streamThinkingDurationMs: _streamThinkingDurationMs,
+    streamContent: _streamContent,
+    streamError: _streamError,
+    streamSubagentLabel: _streamSubagentLabel,
+    streamStatusMessage: _streamStatusMessage,
+    promptSuggestions: _promptSuggestions,
+    activeModelInfo: _activeModelInfo,
+    pendingElicitation: _pendingElicitation,
     pendingPatch,
-    pendingInteractiveQuestion,
-    pendingPermissionRequest,
-    autoApproveSession,
+    pendingInteractiveQuestion: _pendingInteractiveQuestion,
+    pendingPermissionRequest: _pendingPermissionRequest,
+    autoApproveSession: _autoApproveSession,
     handleRunAgent: runAgentBase,
     handleSendMessage: sendMessageBase,
     handleNewSession: newSessionBase,
     handleSelectSession: selectSessionBase,
     handleApplyPatch: applyPatchBase,
-    handleDismissPatch,
-    handleCancelAgent,
-    handleRespondElicitation,
-    handleRespondInteractiveQuestion,
-    handleRespondPermission,
-    handleSetAutoApprove,
+    handleDismissPatch: _handleDismissPatch,
+    handleCancelAgent: _handleCancelAgent,
+    handleRespondElicitation: _handleRespondElicitation,
+    handleRespondInteractiveQuestion: _handleRespondInteractiveQuestion,
+    handleRespondPermission: _handleRespondPermission,
+    handleSetAutoApprove: _handleSetAutoApprove,
     resetForSnapshot: resetAgentChatForSnapshot,
   } = agentChat;
 
@@ -2142,17 +2142,17 @@ function App() {
     void handleRunAgent();
   });
 
-  const handleNewSession = useEffectEvent(() => {
+  const _handleNewSession = useEffectEvent(() => {
     openDrawerTab("ai");
     newSessionBase();
   });
 
-  const handleSelectSession = useEffectEvent(async (sessionId: string) => {
+  const _handleSelectSession = useEffectEvent(async (sessionId: string) => {
     openDrawerTab("ai");
     await selectSessionBase(sessionId);
   });
 
-  const handleApplyPatch = useEffectEvent(async () => {
+  const _handleApplyPatch = useEffectEvent(async () => {
     const patchFilePath = pendingPatch?.filePath;
     await applyPatchBase();
     if (patchFilePath) {
@@ -2161,7 +2161,7 @@ function App() {
     }
   });
 
-  const handleSendMessage = useEffectEvent(async (
+  const _handleSendMessage = useEffectEvent(async (
     text: string,
     options?: { taskMode?: boolean; taskContext?: AgentTaskContext | null },
   ) => {
@@ -2170,7 +2170,7 @@ function App() {
     await sendMessageBase(text, options);
   });
 
-  const handleExitResearchTaskMode = useEffectEvent(() => {
+  const _handleExitResearchTaskMode = useEffectEvent(() => {
     setActiveResearchTaskId(null);
   });
 
@@ -2321,7 +2321,7 @@ function App() {
     });
   });
 
-  const handleApplyResearchTaskSuggestion = useEffectEvent(async (suggestion: TaskUpdateSuggestion) => {
+  const _handleApplyResearchTaskSuggestion = useEffectEvent(async (suggestion: TaskUpdateSuggestion) => {
     try {
       const nextSnapshot = await loadSnapshotWithCollab(() =>
         desktop.applyResearchTaskSuggestion({
@@ -2563,7 +2563,7 @@ function App() {
     await refreshAgentProvidersAndProfiles();
   }
 
-  async function handleSelectChatModel(model: string) {
+  async function _handleSelectChatModel(model: string) {
     const currentSnapshot = snapshot;
     if (!currentSnapshot) {
       return;
@@ -3808,7 +3808,7 @@ function App() {
     () => researchSnapshot?.tasks.find((task) => task.id === activeResearchTaskId) ?? null,
     [activeResearchTaskId, researchSnapshot],
   );
-  const activeLocalizedTaskContext = useMemo<AgentTaskContext | null>(
+  const _activeLocalizedTaskContext = useMemo<AgentTaskContext | null>(
     () =>
       activeLocalizedResearchTask
         ? {
