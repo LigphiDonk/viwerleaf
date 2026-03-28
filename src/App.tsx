@@ -74,7 +74,6 @@ import {
   getAgentBrand,
   isAgentVendor,
   readAgentRuntimePreferences,
-  resolveAgentModelSelection,
   resolveAgentModelVariant,
   writeAgentRuntimePreferences,
   type AgentVendor,
@@ -117,7 +116,6 @@ import type {
   ResearchTask,
   ReviewComment,
   SkillManifest,
-  TaskUpdateSuggestion,
   WorkspaceCollabMetadata,
   WorkspaceEntry,
   WorkspacePaneMode,
@@ -1241,15 +1239,15 @@ function App() {
     promptSuggestions: _promptSuggestions,
     activeModelInfo: _activeModelInfo,
     pendingElicitation: _pendingElicitation,
-    pendingPatch,
+    pendingPatch: _pendingPatch,
     pendingInteractiveQuestion: _pendingInteractiveQuestion,
     pendingPermissionRequest: _pendingPermissionRequest,
     autoApproveSession: _autoApproveSession,
     handleRunAgent: runAgentBase,
-    handleSendMessage: sendMessageBase,
-    handleNewSession: newSessionBase,
-    handleSelectSession: selectSessionBase,
-    handleApplyPatch: applyPatchBase,
+    handleSendMessage: _sendMessageBase,
+    handleNewSession: _newSessionBase,
+    handleSelectSession: _selectSessionBase,
+    handleApplyPatch: _applyPatchBase,
     handleDismissPatch: _handleDismissPatch,
     handleCancelAgent: _handleCancelAgent,
     handleRespondElicitation: _handleRespondElicitation,
@@ -2142,6 +2140,7 @@ function App() {
     void handleRunAgent();
   });
 
+  /* [unused – kept for future wiring]
   const _handleNewSession = useEffectEvent(() => {
     openDrawerTab("ai");
     newSessionBase();
@@ -2173,6 +2172,7 @@ function App() {
   const _handleExitResearchTaskMode = useEffectEvent(() => {
     setActiveResearchTaskId(null);
   });
+  */
 
   const handleEnsureResearchScaffold = useEffectEvent(async () => {
     if (!snapshot?.projectConfig.rootPath || isResearchBootstrapBusy) {
@@ -2321,6 +2321,7 @@ function App() {
     });
   });
 
+  /* [unused – kept for future wiring]
   const _handleApplyResearchTaskSuggestion = useEffectEvent(async (suggestion: TaskUpdateSuggestion) => {
     try {
       const nextSnapshot = await loadSnapshotWithCollab(() =>
@@ -2346,6 +2347,7 @@ function App() {
       throw error;
     }
   });
+  */
 
   const handleAddResearchTask = useEffectEvent(async (draft: ResearchTaskDraft) => {
     try {
@@ -2563,6 +2565,7 @@ function App() {
     await refreshAgentProvidersAndProfiles();
   }
 
+  /* [unused – kept for future wiring]
   async function _handleSelectChatModel(model: string) {
     const currentSnapshot = snapshot;
     if (!currentSnapshot) {
@@ -2612,6 +2615,7 @@ function App() {
 
     await refreshAgentProvidersAndProfiles();
   }
+  */
 
   async function handleToggleSkill(skill: SkillManifest) {
     const enabled = !(skill.isEnabled ?? skill.enabled ?? false);
@@ -3804,10 +3808,13 @@ function App() {
     () => (snapshot?.research ? localizeResearchSnapshot(snapshot.research, locale) : null),
     [locale, snapshot?.research],
   );
+  /* [unused – kept for future wiring]
   const activeLocalizedResearchTask = useMemo(
     () => researchSnapshot?.tasks.find((task) => task.id === activeResearchTaskId) ?? null,
     [activeResearchTaskId, researchSnapshot],
   );
+  */
+  /* [unused – kept for future wiring]
   const _activeLocalizedTaskContext = useMemo<AgentTaskContext | null>(
     () =>
       activeLocalizedResearchTask
@@ -3826,6 +3833,7 @@ function App() {
         : null,
     [activeLocalizedResearchTask],
   );
+  */
   const currentResearchStageSummary =
     researchSnapshot?.stageSummaries.find((stage) => stage.stage === researchSnapshot.currentStage) ?? null;
   const showResearchSurface = hasProject && workspaceSurface === "research";
