@@ -1,10 +1,4 @@
 <p align="center">
-  <img src="./src/assets/qrcode.jpg" alt="交流群二维码" width="180" />
-  <br/>
-  <em>扫码加入交流群</em>
-</p>
-
-<p align="center">
   <img src="./icons/icon.png" alt="Oh My Paper" width="120" height="120" />
 </p>
 
@@ -13,6 +7,8 @@
 <p align="center">
   <strong>A research harness for Claude Code — turn your terminal into an autonomous research lab.</strong>
 </p>
+
+> **Note:** This project is an extension/contribution based on the [Oh-My-Paper](https://github.com/LigphiDonk/Oh-my--paper) project. All credits to the original authors. This branch/version contains additional features and modifications.
 
 <p align="center">
   <a href="./README.zh.md">中文文档</a>
@@ -44,7 +40,7 @@ Restart Claude Code. Run `/omp:setup` inside your research project, then drive t
 
 - [Why This Exists](#why-this-exists)
 - [Install](#install)
-- [Claude Code Slash Commands](#claude-code-slash-commands)
+- [Slash Commands](#slash-commands)
 - [The Agent Team](#the-agent-team)
 - [34 Research Skills](#34-research-skills)
 - [Hooks](#hooks)
@@ -104,22 +100,30 @@ This scaffolds the `.pipeline/` directory and registers the `SessionStart` hook 
 
 ### Update
 
-The most reliable way to get the latest version:
+Keep the plugin up to date with one command:
 
 ```bash
-/plugin uninstall omp
-/plugin install omp@oh-my-paper
-/reload-plugins
+/omp:update
 ```
 
-Or overwrite the plugin cache directly (faster, no restart needed):
+Options:
+- `--check-only` - Only check for updates without installing
+- `--auto` - Auto-update without confirmation
 
-```bash
-cp -r /path/to/oh-my-paper/plugins/oh-my-paper/. \
-  ~/.claude/plugins/cache/oh-my-paper/omp/1.0.0/
-# Then in Claude Code:
-/reload-plugins
-```
+The plugin also checks for updates automatically once per day when you start a session (if auto-check is enabled).
+
+If a new version is available:
+1. The update command downloads the latest code from GitHub
+2. Copies it to the plugin cache directory
+3. Prompts you to run `/reload-plugins` (and restart if hooks changed)
+
+> **Manual update (fallback)**:
+> If automatic update fails, you can manually update:
+> ```bash
+> /plugin uninstall omp
+> /plugin install omp@oh-my-paper
+> /reload-plugins
+> ```
 
 ### Install from Local Directory
 
@@ -132,10 +136,7 @@ git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
 
 ---
 
-## Claude Code Slash Commands
-
-These slash commands are provided by the **Claude Code plugin**.
-The Codex plugin does **not** currently auto-register `/omp-*` commands in the Codex CLI.
+## Slash Commands
 
 All commands are prefixed with `/omp:`.
 
@@ -147,6 +148,7 @@ All commands are prefixed with `/omp:`.
 | `/omp:experiment` | Design experiments, write evaluation code, run on remote compute nodes |
 | `/omp:write` | Draft paper sections, generate figures and captions, manage LaTeX files |
 | `/omp:review` | Peer-review your paper or experiment results before submission |
+| `/omp:update` | One-click plugin update — check for and install the latest version from GitHub |
 | `/omp:delegate` | Generate a Codex prompt for a coding/experiment task; wait for result and update project state |
 | `/omp:plan` | Review global progress, confirm next steps, update research plan |
 
@@ -384,96 +386,10 @@ Any change to cached content requires version bumps in **both**:
 
 ---
 
-## Codex Support
-
-Oh My Paper also ships a **Codex plugin** (`oh-my-paper-codex`) that shares the same research harness concepts, agents, and skills as the Claude Code plugin.
-
-### Install on Codex
-
-**macOS / Linux**
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
-cd /tmp/oh-my-paper
-
-# 2. One-command install
-./scripts/install-codex-plugin.sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-# 1. Clone the repo
-git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
-Set-Location $env:TEMP\oh-my-paper
-
-# 2. One-command install
-powershell -ExecutionPolicy Bypass -File .\scripts\install-codex-plugin.ps1
-```
-
-What the installer does:
-
-- Copies the plugin to `~/plugins/oh-my-paper-codex`
-- Creates or updates `~/.agents/plugins/marketplace.json`
-- Tries to call Codex directly so the plugin becomes installed and enabled immediately
-- Uses `node` under the hood, so make sure `node` is available on your `PATH`
-
-If `codex` is not available on your `PATH`, the script still registers the plugin and then tells you to finish the last step in Codex's Plugins page. If you search there, search for `Oh My Paper` or `oh-my-paper-codex`, not `omp`.
-
-### Use in Codex CLI
-
-After installation, start Codex in your research project directory:
-
-```bash
-cd /path/to/your/research-project
-codex
-```
-
-Then use one of these two patterns:
-
-- Ask naturally, for example: `Use Oh My Paper to initialize this research project and scaffold .pipeline/`
-- Reuse the workflow prompt templates under `plugins/oh-my-paper-codex/prompts/` by copying or adapting them inside the Codex session
-
-Codex CLI does **not** currently auto-register the files in `plugins/oh-my-paper-codex/prompts/` as slash commands, so `/omp-setup` and similar commands will **not** appear in the CLI command palette.
-
-### What's Included
-
-| Feature | Claude Code | Codex CLI |
-|:---|:---|:---|
-| Agent Roles (5) | `agents/*.md` | `agents/*.toml` |
-| Workflow entrypoints | `/omp:...` slash commands | Natural-language prompts + `prompts/*.md` templates |
-| SessionStart Hook | Native hook | `AGENTS.md` (auto-read) |
-| Skills (34) | ✅ shared | ✅ shared |
-| `.pipeline/` Memory | ✅ | ✅ |
-| Codex Delegation | `/omp:delegate` → new terminal | Native `/agent` subagent |
-
-### Key Differences
-
-- **Hooks**: Codex doesn't have native hooks. The `SessionStart` equivalent is handled by `AGENTS.md` which Codex reads automatically. Stage transition detection is embedded in the agent instructions.
-- **CLI command model**: Claude Code exposes `/omp:...` slash commands. Codex CLI currently does not auto-register the plugin's `prompts/*.md` files as `/omp-*` slash commands, so you use natural-language prompts or copy/adapt the templates manually.
-- **Both can coexist**: The Codex plugin (`plugins/oh-my-paper-codex/`) is completely separate from the Claude Code plugin (`plugins/oh-my-paper/`). Installing one does not affect the other.
-- **Installer scripts**: Use `scripts/install-codex-plugin.sh` on macOS/Linux or `scripts/install-codex-plugin.ps1` on Windows. They merge the marketplace entry instead of overwriting your existing local plugins.
-- **Codex discovery**: Codex expects a valid `~/.agents/plugins/marketplace.json` entry plus a plugin directory under `~/plugins/<plugin-name>/`. Copying files only into `~/.codex/plugins/` is not enough for the plugin UI to discover it.
-- **Codex install state**: A marketplace entry only makes the plugin appear in the Plugins page. You must still install it there before it becomes enabled and usable.
-
----
-
 ## Uninstall
 
-**Claude Code:**
 ```bash
 /plugin uninstall omp@oh-my-paper
-```
-
-**Codex on macOS / Linux:**
-```bash
-./scripts/uninstall-codex-plugin.sh
-```
-
-**Codex on Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex-plugin.ps1
 ```
 
 ---
