@@ -1,10 +1,4 @@
 <p align="center">
-  <img src="./src/assets/qrcode.jpg" alt="交流群二维码" width="180" />
-  <br/>
-  <em>扫码加入交流群</em>
-</p>
-
-<p align="center">
   <img src="./icons/icon.png" alt="Oh My Paper" width="120" height="120" />
 </p>
 
@@ -44,7 +38,7 @@
 
 - [为什么做这个](#为什么做这个)
 - [安装](#安装)
-- [Claude Code 命令列表](#claude-code-命令列表)
+- [命令列表](#命令列表)
 - [Agent 团队](#agent-团队)
 - [34 个研究技能](#34-个研究技能)
 - [Hooks](#hooks)
@@ -104,22 +98,30 @@ hooks 需要重启才能生效。
 
 ### 更新插件
 
-最可靠的更新方式：
+一键更新到最新版本：
 
 ```bash
-/plugin uninstall omp
-/plugin install omp@oh-my-paper
-/reload-plugins
+/omp:update
 ```
 
-或者直接覆盖插件缓存（更快，不需要重启）：
+可选参数：
+- `--check-only` — 仅检查更新，不执行安装
+- `--auto` — 自动更新，不询问确认
 
-```bash
-cp -r /path/to/oh-my-paper/plugins/oh-my-paper/. \
-  ~/.claude/plugins/cache/oh-my-paper/omp/1.0.0/
-# 然后在 Claude Code 里：
-/reload-plugins
-```
+插件还会在每次会话开始时自动检查更新（默认每日一次）。
+
+如果发现新版本：
+1. 更新命令从 GitHub 下载最新代码
+2. 复制到插件缓存目录
+3. 提示你运行 `/reload-plugins`（如果 hooks 有变更，需要重启 Claude Code）
+
+> **手动更新（备选方案）**：
+> 如果自动更新失败，可以使用以下命令手动更新：
+> ```bash
+> /plugin uninstall omp
+> /plugin install omp@oh-my-paper
+> /reload-plugins
+> ```
 
 ### 从本地目录安装
 
@@ -132,10 +134,7 @@ git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
 
 ---
 
-## Claude Code 命令列表
-
-这些命令由 **Claude Code 插件**提供。
-Codex 插件目前**不会**在 Codex CLI 里自动注册 `/omp-*` 命令。
+## 命令列表
 
 所有命令以 `/omp:` 开头。
 
@@ -147,6 +146,7 @@ Codex 插件目前**不会**在 Codex CLI 里自动注册 `/omp-*` 命令。
 | `/omp:experiment` | 设计实验、编写评估代码、在远程节点上运行 |
 | `/omp:write` | 撰写论文章节、生成图表和标题、管理 LaTeX 文件 |
 | `/omp:review` | 同行评审——提交前对论文或实验结果做质量把关 |
+| `/omp:update` | 一键更新插件——检查并安装 GitHub 上的最新版本 |
 | `/omp:delegate` | 生成 Codex prompt 委派代码/实验任务；等待结果后自动更新项目状态 |
 | `/omp:plan` | 查看全局进展，确认下一步方向，更新研究计划 |
 
@@ -385,96 +385,10 @@ Conductor 可以把代码和实验任务交给 Codex 执行：
 
 ---
 
-## Codex 支持
-
-Oh My Paper 同时提供 **Codex 插件**（`oh-my-paper-codex`），共享同一套科研 harness 思路、agent 和 skills，但交互方式与 Claude Code 不完全相同。
-
-### 在 Codex 上安装
-
-**macOS / Linux**
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
-cd /tmp/oh-my-paper
-
-# 2. 一键安装
-./scripts/install-codex-plugin.sh
-```
-
-**Windows（PowerShell）**
-
-```powershell
-# 1. 克隆仓库
-git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
-Set-Location $env:TEMP\oh-my-paper
-
-# 2. 一键安装
-powershell -ExecutionPolicy Bypass -File .\scripts\install-codex-plugin.ps1
-```
-
-安装脚本会自动完成：
-
-- 复制插件到 `~/plugins/oh-my-paper-codex`
-- 创建或更新 `~/.agents/plugins/marketplace.json`
-- 尝试直接调用 Codex，把插件安装并启用
-- 底层使用 `node` 执行，所以请先确保 `node` 在你的 `PATH` 上
-
-如果你的环境里 `codex` 不在 `PATH` 上，脚本仍会先把插件注册进去，然后提示你去 Codex 的 Plugins 页面完成最后一步。若需要搜索，优先搜 `Oh My Paper` 或 `oh-my-paper-codex`，不要只搜 `omp`。
-
-### 在 Codex CLI 里怎么用
-
-安装完成后，在你的科研项目目录里启动 Codex：
-
-```bash
-cd /path/to/your/research-project
-codex
-```
-
-然后用下面两种方式之一：
-
-- 直接自然语言描述，例如：`Use Oh My Paper to initialize this research project and scaffold .pipeline/`
-- 打开 `plugins/oh-my-paper-codex/prompts/` 里的工作流模板，在 Codex 会话里复制或改写后使用
-
-Codex CLI 目前**不会**把 `plugins/oh-my-paper-codex/prompts/` 下的文件自动注册成斜杠命令，所以你在 CLI 里看不到 `/omp-setup` 这类命令。
-
-### 包含内容
-
-| 功能 | Claude Code | Codex CLI |
-|:---|:---|:---|
-| Agent 角色（5 个） | `agents/*.md` | `agents/*.toml` |
-| 工作流入口 | `/omp:...` 斜杠命令 | 自然语言 + `prompts/*.md` 模板 |
-| SessionStart Hook | 原生 hook | `AGENTS.md`（自动读取） |
-| 技能（34 个） | ✅ 共享 | ✅ 共享 |
-| `.pipeline/` 记忆 | ✅ | ✅ |
-| Codex 任务委派 | `/omp:delegate` → 新终端 | 原生 `/agent` 子代理 |
-
-### 关键差异
-
-- **Hooks**：Codex 没有原生 hook 系统。SessionStart 等价功能通过 `AGENTS.md` 实现（Codex 启动时自动读取）。阶段转换检测嵌入在 agent 指令中。
-- **CLI 命令模型**：Claude Code 提供 `/omp:...` 斜杠命令；Codex CLI 目前不会把插件里的 `prompts/*.md` 自动注册成 `/omp-*` 命令，因此需要用自然语言或手动复用模板。
-- **可以共存**：Codex 插件（`plugins/oh-my-paper-codex/`）与 Claude Code 插件（`plugins/oh-my-paper/`）完全独立，互不影响。
-- **安装脚本**：macOS/Linux 用 `scripts/install-codex-plugin.sh`，Windows 用 `scripts/install-codex-plugin.ps1`。脚本会合并 marketplace 条目，不会直接覆盖你已有的本地插件列表。
-- **Codex 的发现机制**：Codex 需要 `~/.agents/plugins/marketplace.json` 里有合法条目，同时插件目录位于 `~/plugins/<plugin-name>/`。只把文件复制到 `~/.codex/plugins/`，UI 不会收录。
-- **Codex 的安装状态**：marketplace 里有条目，只代表插件会出现在 Plugins 页面；你仍然需要在页面里点一次 Install，它才会变成已安装、已启用。
-
----
-
 ## 卸载
 
-**Claude Code：**
 ```bash
 /plugin uninstall omp@oh-my-paper
-```
-
-**Codex（macOS / Linux）：**
-```bash
-./scripts/uninstall-codex-plugin.sh
-```
-
-**Codex（Windows / PowerShell）：**
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex-plugin.ps1
 ```
 
 ---
