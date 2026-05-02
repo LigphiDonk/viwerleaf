@@ -2,22 +2,67 @@
  * on-session-start.mjs
  * SessionStart hook — 注入当前任务上下文到 .pipeline/.session-context.md
  */
+
 import fs from "node:fs/promises";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 
 const PROJECT = process.cwd();
 const SESSION_CONTEXT = path.join(PROJECT, ".pipeline", ".session-context.md");
 const TTL_MS = 5 * 60 * 1000;
 
-async function main() {
+// 检查更新（每日最多一次）
+function checkForUpdate() {
+  try {
+    const pluginRoot = path.resolve(PROJECT, 'plugins', 'oh-my-paper');
+    if (!existsSync(pluginRoot)) return false;
+    
+    const checkScript = path.join(pluginRoot, 'scripts', 'check-update.mjs');
+    if (!existsSync(checkScript)) return false;
+    
+    const output = execSync(`node "${checkScript}"`, { 
+      cwd: PROJECT, 
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return true; // 有更新（退出码 0）
+  } catch (e) {
+    // 检查脚本执行失败（退出码非0 = 无更新或检查失败）
+    return false;
+  }
+}
+
+function main() {
+  // 自动更新检查（每日一次）
+  const pipelineDir = path.join(PROJECT, ".pipeline");
+  if (existsSync(pipelineDir)) {
+    const lastCheckFile = path.join(pipelineDir, ".last-update-check");
+    const today = new Date().toISOString().split('T')[0];
+    let shouldCheck = true;
+
+    if (existsSync(lastCheckFile)) {
+      const lastCheck = readFileSync(lastCheckFile, "utf8").trim();
+      if (lastCheck === today) shouldCheck = false;
+    }
+
+    if (shouldCheck) {
+      if (checkForUpdate()) {
+        process.stdout.write("\n🔔 OMP 插件有可用更新！运行 /omp:update 更新\n");
+      }
+      // 写入今天已检查标记
+      try {
+        writeFileSync(lastCheckFile, today);
+      } catch (e) {}
+    }
+  }
+
   // 如果已经有新鲜的 context，跳过
   if (existsSync(SESSION_CONTEXT)) {
     if (Date.now() - statSync(SESSION_CONTEXT).mtimeMs < TTL_MS) return;
   }
 
   // 检查是否是研究项目
-  const pipelineDir = path.join(PROJECT, ".pipeline");
   if (!existsSync(pipelineDir)) return;
 
   const lines = ["# Session Context (Auto-generated)", ""];
@@ -75,8 +120,9 @@ async function main() {
   process.stdout.write(output + "\n");
 
   // 同时写文件备用
-  await fs.mkdir(path.dirname(SESSION_CONTEXT), { recursive: true });
-  await fs.writeFile(SESSION_CONTEXT, output, "utf8");
+  fs.mkdir(path.dirname(SESSION_CONTEXT), { recursive: true })
+    .then(() => fs.writeFile(SESSION_CONTEXT, output, "utf8"))
+    .catch(() => {});
 }
 
-main().catch(() => process.exit(0));
+main();
