@@ -1,6 +1,7 @@
 ---
 id: research-experiment-driver
 name: Research Experiment Driver
+description: Use when the project is ready to translate a selected research idea into executable experiment plans, implementation tasks, metrics, and ablations.
 version: 1.0.0
 stages: [experiment]
 tools: [read_file, write_file, run_terminal]

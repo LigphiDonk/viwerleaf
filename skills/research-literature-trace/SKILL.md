@@ -1,6 +1,7 @@
 ---
 id: research-literature-trace
 name: Research Literature Trace
+description: Use for survey or ideation work that needs literature collection, screening, source tracing, canonical paper URLs, or gap summaries.
 version: 1.0.0
 stages: [survey, ideation]
 tools: [read_file, search_project, write_file]

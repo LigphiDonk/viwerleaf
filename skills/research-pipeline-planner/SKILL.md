@@ -1,6 +1,7 @@
 ---
 id: research-pipeline-planner
 name: Research Pipeline Planner
+description: Use when the user needs to define, initialize, revise, or checkpoint the project-level research pipeline and stage task plan.
 version: 1.0.0
 stages: [survey, ideation, experiment, publication, promotion]
 tools: [read_file, write_file, update_pipeline]

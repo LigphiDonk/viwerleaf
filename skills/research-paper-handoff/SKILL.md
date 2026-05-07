@@ -1,6 +1,7 @@
 ---
 id: research-paper-handoff
 name: Research Paper Handoff
+description: Use when the workflow moves into paper writing, publication delivery, LaTeX handoff, figure/reference insertion, or promotion follow-up.
 version: 1.0.0
 stages: [publication, promotion]
 tools: [read_file, write_file]
