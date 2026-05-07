@@ -120,7 +120,7 @@ async function installPlugin({ sourceDir, pluginDir, marketplacePath, skipAppSer
 
   await rm(pluginDir, { recursive: true, force: true });
   await mkdir(path.dirname(pluginDir), { recursive: true });
-  await cp(sourceDir, pluginDir, { recursive: true, force: true });
+  await cp(sourceDir, pluginDir, { recursive: true, force: true, dereference: true });
 
   const { marketplace } = await loadMarketplace(marketplacePath);
   marketplace.plugins = upsertPluginEntry(marketplace.plugins);
