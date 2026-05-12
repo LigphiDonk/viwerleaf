@@ -1,4 +1,5 @@
 ---
+name: survey
 description: 全自动文献调研：下载真实论文 PDF 并 OCR，再执行搜索和 gap 分析
 ---
 

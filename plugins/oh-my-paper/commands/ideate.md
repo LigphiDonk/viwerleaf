@@ -1,4 +1,5 @@
 ---
+name: ideate
 description: 生成并评估创新点，每步展示中间结果等用户参与决策
 ---
 

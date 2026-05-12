@@ -1,4 +1,5 @@
 ---
+name: delegate
 description: 将子任务委派给 Codex，先展示任务摘要等确认，再注入上下文调用 /codex:rescue
 ---
 
