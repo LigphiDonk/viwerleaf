@@ -67,6 +67,12 @@ Help users discover the latest research papers by searching arXiv and Semantic S
 3. Scan existing notes to build a keyword index
 
 ## Step 2: Search Papers
+
+> **Prerequisites**: The scripts below are not bundled with Oh My Paper. They come from the upstream
+> [evil-read-arxiv](https://github.com/evil-read-arxiv) project and must be present at
+> `server/scripts/research-news/` relative to your project root before these steps will work.
+> Install them first, or adapt the workflow to use WebFetch/Bash to query the arXiv API directly.
+
 Execute the search script (scripts are located in `server/scripts/research-news/`):
 ```bash
 cd server/scripts/research-news
