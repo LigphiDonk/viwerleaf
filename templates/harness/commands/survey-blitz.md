@@ -1,4 +1,5 @@
 ---
+name: survey-blitz
 description: 全自动文献调研：先和用户确认搜索方向，再交给 Codex 执行
 ---
 

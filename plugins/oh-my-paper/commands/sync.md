@@ -1,4 +1,5 @@
 ---
+name: sync
 description: 强制同步项目进度文档（project_truth / execution_context / orchestrator_state）
 ---
 

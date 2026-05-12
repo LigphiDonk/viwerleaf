@@ -1,4 +1,5 @@
 ---
+name: delegate
 description: 为代码/实验任务生成 Codex prompt，用户复制到新终端执行，结果自动落到共享文件
 ---
 

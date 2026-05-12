@@ -1,4 +1,5 @@
 ---
+name: setup
 description: 初始化研究项目结构（.pipeline/），并检查 Codex 插件是否就绪
 ---
 

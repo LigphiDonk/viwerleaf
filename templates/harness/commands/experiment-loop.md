@@ -1,4 +1,5 @@
 ---
+name: experiment-loop
 description: 实验循环：展示实验方案后确认，每轮结果回来后再决定继续/停止
 ---
 
